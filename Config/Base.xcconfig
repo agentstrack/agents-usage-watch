@@ -1,0 +1,12 @@
+// Shared build settings. Personal values (your Apple team, your bundle ID prefix) go in Config/Local.xcconfig,
+// which git ignores: copy Config/Local.xcconfig.example to start.
+
+// Your Apple Developer team ID (Xcode > Settings > Accounts). A free Apple ID team works for local builds.
+DEVELOPMENT_TEAM =
+// Reverse-DNS prefix for the app and widget bundle IDs; must be unique to your team.
+BUNDLE_ID_PREFIX = com.example
+
+// The app and the widget share data through this app group ("<TEAMID>.group.agentsusagewatch" on macOS).
+APP_GROUP_ID = $(TeamIdentifierPrefix)group.agentsusagewatch
+
+#include? "Local.xcconfig"
