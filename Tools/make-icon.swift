@@ -12,12 +12,6 @@ func rgb(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
             blue: CGFloat(hex & 0xFF) / 255, alpha: a)
 }
 
-func lerp(_ a: CGColor, _ b: CGColor, _ t: CGFloat) -> CGColor {
-    let x = a.components!, y = b.components!
-    return CGColor(srgbRed: x[0] + (y[0] - x[0]) * t, green: x[1] + (y[1] - x[1]) * t,
-                   blue: x[2] + (y[2] - x[2]) * t, alpha: 1)
-}
-
 /// macOS icon body: superellipse (n≈5) approximating Apple's continuous-corner squircle.
 func squircle(_ r: CGRect) -> CGPath {
     let p = CGMutablePath(), n: CGFloat = 5, steps = 720
@@ -32,74 +26,29 @@ func squircle(_ r: CGRect) -> CGPath {
     return p
 }
 
-/// Draws the icon in a 1024×1024 coordinate space (y up).
+/// Draws the icon in a 1024×1024 coordinate space (y up). Same mark as AgentsTrack's icon.svg (flat #4f46e5
+/// tile, prompt chevron, caret), except the caret is a usage meter: a dim track with a partial fill.
 func drawIcon(_ ctx: CGContext) {
     let body = CGRect(x: 100, y: 100, width: 824, height: 824)
     let shape = squircle(body)
 
-    // Drop shadow under the body.
     ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: rgb(0x000000, 0.45))
-    ctx.addPath(shape); ctx.setFillColor(rgb(0x1E1B4B)); ctx.fillPath()
+    ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: rgb(0x000000, 0.35))
+    ctx.addPath(shape); ctx.setFillColor(rgb(0x4F46E5)); ctx.fillPath()
     ctx.restoreGState()
 
-    // Body: AgentsTrack indigo (#4f46e5) vertical gradient + soft top glow for depth.
-    ctx.saveGState()
-    ctx.addPath(shape); ctx.clip()
-    let bg = CGGradient(colorsSpace: nil, colors: [rgb(0x5B54F0), rgb(0x312E81)] as CFArray, locations: [0, 1])!
-    ctx.drawLinearGradient(bg, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 100), options: [])
-    let glow = CGGradient(colorsSpace: nil, colors: [rgb(0xFFFFFF, 0.16), rgb(0xFFFFFF, 0)] as CFArray, locations: [0, 1])!
-    ctx.drawRadialGradient(glow, startCenter: CGPoint(x: 512, y: 860), startRadius: 0,
-                           endCenter: CGPoint(x: 512, y: 860), endRadius: 560, options: [])
-    ctx.restoreGState()
-    // Hairline rim so the dark body separates from dark backgrounds.
-    ctx.addPath(shape); ctx.setStrokeColor(rgb(0xFFFFFF, 0.10)); ctx.setLineWidth(4); ctx.strokePath()
+    // Map the 32×32 svg viewBox onto the body (svg y grows downwards).
+    let u = body.width / 32
+    func svg(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: body.minX + x * u, y: body.maxY - y * u) }
+    ctx.setLineWidth(2.6 * u); ctx.setLineCap(.round); ctx.setLineJoin(.round)
 
-    // Gauge: 270° sweep opening at the bottom.
-    let center = CGPoint(x: 512, y: 492), radius: CGFloat = 250, width: CGFloat = 124
-    let start: CGFloat = 225, sweep: CGFloat = 270
-    let value: CGFloat = 0.70, pace: CGFloat = 0.52
-    func angle(_ f: CGFloat) -> CGFloat { (start - sweep * f) * .pi / 180 }
-    func point(_ f: CGFloat, _ r: CGFloat) -> CGPoint {
-        CGPoint(x: center.x + r * cos(angle(f)), y: center.y + r * sin(angle(f)))
-    }
-
-    ctx.setLineCap(.round)
-    // Track.
-    ctx.addArc(center: center, radius: radius, startAngle: angle(0), endAngle: angle(1), clockwise: true)
-    ctx.setStrokeColor(rgb(0xFFFFFF, 0.18)); ctx.setLineWidth(width); ctx.strokePath()
-
-    // Filled arc, green → amber along its length (clip to the stroke, paint wedges).
-    let green = rgb(0x30D158), amber = rgb(0xFFB224)
-    ctx.saveGState()
-    ctx.addArc(center: center, radius: radius, startAngle: angle(0), endAngle: angle(value), clockwise: true)
-    ctx.setLineWidth(width); ctx.replacePathWithStrokedPath(); ctx.clip()
-    let slices = 240
-    for i in 0..<slices {
-        // Extend past both ends so the round caps get the end colours.
-        let f0 = -0.08 + (value + 0.16) * CGFloat(i) / CGFloat(slices)
-        let f1 = -0.08 + (value + 0.16) * CGFloat(i + 1) / CGFloat(slices) + 0.002
-        let t = min(max((f0 + f1) / 2 / value, 0), 1)
-        ctx.move(to: center)
-        ctx.addArc(center: center, radius: radius + width, startAngle: angle(f0), endAngle: angle(f1), clockwise: true)
-        ctx.closePath()
-        ctx.setFillColor(lerp(green, amber, t)); ctx.fillPath()
-    }
-    ctx.restoreGState()
-
-    // Pace marker: white bar across the track, with a dark halo to separate it from the fill.
-    let a = point(pace, radius - width / 2 - 30), b = point(pace, radius + width / 2 + 30)
-    for (w, c) in [(CGFloat(80), rgb(0x1E1B4B, 0.9)), (CGFloat(44), rgb(0xFFFFFF))] {
-        ctx.move(to: a); ctx.addLine(to: b)
-        ctx.setStrokeColor(c); ctx.setLineWidth(w); ctx.strokePath()
-    }
-
-    // AgentsTrack's ">_" prompt mark in the middle of the gauge (same proportions as its icon.svg).
-    ctx.setStrokeColor(rgb(0xFFFFFF)); ctx.setLineWidth(30); ctx.setLineCap(.round); ctx.setLineJoin(.round)
-    let u: CGFloat = 14, o = CGPoint(x: center.x - 7 * u, y: center.y + 5 * u)   // svg (16,16) -> gauge centre
-    func svg(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: o.x + (x - 9) * u, y: o.y - (y - 11) * u) }
+    ctx.setStrokeColor(rgb(0xFFFFFF))
     ctx.move(to: svg(9, 11)); ctx.addLine(to: svg(14, 16)); ctx.addLine(to: svg(9, 21)); ctx.strokePath()
-    ctx.move(to: svg(17, 21)); ctx.addLine(to: svg(23, 21)); ctx.strokePath()
+
+    ctx.setStrokeColor(rgb(0xFFFFFF, 0.35))
+    ctx.move(to: svg(17, 21)); ctx.addLine(to: svg(24, 21)); ctx.strokePath()
+    ctx.setStrokeColor(rgb(0xFFFFFF))
+    ctx.move(to: svg(17, 21)); ctx.addLine(to: svg(21, 21)); ctx.strokePath()
 }
 
 func render(_ px: Int) -> CGImage {

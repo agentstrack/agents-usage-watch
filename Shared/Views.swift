@@ -5,7 +5,7 @@ import WidgetKit
 // Views shared by the widget and the menu bar panel.
 
 // AgentsTrack indigo for the Ultra chip, the tinted widget background and the first chart line.
-let accent = Color(red: 0.39, green: 0.40, blue: 0.95)
+let accent = Color(red: 0.31, green: 0.27, blue: 0.90) // AgentsTrack #4f46e5
 
 extension Tone {
     var color: Color {
