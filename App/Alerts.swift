@@ -27,6 +27,19 @@ struct Alert: Equatable {
 }
 
 enum Alerts {
+    /// An account's weekly % since `since`, one point per `bucket` (its last sample), ending at the current value.
+    /// Keeps the snapshot small: 28 days at 2 h is at most 337 points per account.
+    static func series(_ history: [Sample], id: String, current: Double?, since: Date, now: Date,
+                       bucket: TimeInterval = 7200) -> [Point] {
+        var last: [Int: Sample] = [:]
+        for s in history where s.id == id && s.t >= since && s.t <= now {
+            last[Int(s.t.timeIntervalSince1970 / bucket)] = s
+        }
+        var points = last.keys.sorted().compactMap { last[$0].map { Point(t: $0.t, v: $0.d7) } }
+        if let current, points.last?.t != now { points.append(Point(t: now, v: current)) }
+        return points
+    }
+
     static func inQuietHours(_ now: Date, _ s: AlertSettings, calendar: Calendar = .current) -> Bool {
         guard let from = s.quietFrom, let to = s.quietTo, from != to else { return false }
         let h = calendar.component(.hour, from: now)

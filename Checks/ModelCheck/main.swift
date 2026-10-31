@@ -129,6 +129,14 @@ check(Alerts.burnSpike(Array(hist.suffix(4)), now: now) == nil, "no spike alert 
 check(Alerts.hourlyGains([Sample(t: now, id: "a", d7: 90, r: now), Sample(t: now + 60, id: "a", d7: 2, r: now + Usage.week)]).isEmpty,
       "a weekly reset isn't counted as usage")
 
+// MARK: Progress series
+let samples = (0..<12).map { Sample(t: now - Double(12 - $0) * 1800, id: "a", d7: Double($0), r: nil) }   // every 30 min
+    + [Sample(t: now - 600, id: "b", d7: 99, r: nil), Sample(t: now - 40 * 86400, id: "a", d7: 1, r: nil)]
+let ser = Alerts.series(samples, id: "a", current: 12, since: now - 28 * 86400, now: now)
+check(ser.count <= 5 && ser.last == Point(t: now, v: 12), "one point per 2 h bucket, ending at the current value")
+check(ser.allSatisfy { $0.v != 99 && $0.v != 1 }, "other accounts and samples older than the window are left out")
+check(zip(ser, ser.dropFirst()).allSatisfy { $0.t < $1.t }, "points in time order")
+
 print("ok: all checks passed")
 
 extension Process {

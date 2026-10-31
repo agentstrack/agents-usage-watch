@@ -76,11 +76,19 @@ struct Row: Codable, Identifiable, Equatable {
     }
 }
 
+/// One point of an account's weekly-% history, for the progress chart.
+struct Point: Codable, Equatable {
+    let t: Date
+    let v: Double
+}
+
 struct Snapshot: Codable {
     var schemaVersion = 1
     let updated: Date
     let nextUpdate: Date      // when the app plans its next refresh; the widget uses it to spot a dead app
     let rows: [Row]
+    /// Weekly % over the last 28 days by account id, one point per 2 h (the widget can't read the history file).
+    var series: [String: [Point]]? = nil
 
     /// From the AppGroup Info.plist key (set from APP_GROUP_ID in Config/Base.xcconfig), so forks build as-is.
     static let appGroup = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as? String ?? ""
@@ -107,6 +115,9 @@ struct Snapshot: Codable {
             trendPerDay: 8, today: 3, status: .ok, fetchedAt: .now),
         Row(id: "/sample/b", name: "PERSONAL", plan: "max", h5: 35, h5Reset: .now + 7200, d7: 62,
             d7Reset: .now + 2 * 86400, trendPerDay: 12, today: 9, status: .ok, fetchedAt: .now),
+    ], series: [
+        "/sample/a": (0...36).map { Point(t: .now - Double(36 - $0) * 7200, v: Double($0) * 0.66) },
+        "/sample/b": (0...60).map { Point(t: .now - Double(60 - $0) * 7200, v: Double($0)) },
     ])
 }
 

@@ -17,6 +17,7 @@ final class Store: ObservableObject {
     @Published private(set) var refreshing = false
     @Published private(set) var lastRefresh: Date?
     @Published private(set) var nextRefresh: Date?
+    @Published private(set) var series: [String: [Point]] = [:]   // what the progress charts draw
 
     private let defaults = UserDefaults.standard
     private var history: [Sample] = []
@@ -190,7 +191,12 @@ final class Store: ObservableObject {
     func writeSnapshot(force: Bool = false) {
         if force { forceWidgetReload = true }
         let rows = visibleRows
-        let snap = Snapshot(updated: lastRefresh ?? .now, nextUpdate: nextRefresh ?? .now + interval, rows: rows)
+        let now = Date.now
+        let series = Dictionary(uniqueKeysWithValues: rows.map {
+            ($0.id, Alerts.series(history, id: $0.id, current: $0.d7, since: now - 28 * 86400, now: now))
+        })
+        self.series = series
+        let snap = Snapshot(updated: lastRefresh ?? now, nextUpdate: nextRefresh ?? now + interval, rows: rows, series: series)
         guard let file = Snapshot.file, let data = try? JSONEncoder.usage.encode(snap) else { return }
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: file, options: .atomic)

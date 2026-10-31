@@ -63,3 +63,32 @@ struct RefreshIntent: AppIntent {
         return .result()
     }
 }
+
+// Right-click the widget > Edit "Usage Progress".
+struct ProgressIntent: WidgetConfigurationIntent {
+    static let title: LocalizedStringResource = "Usage Progress"
+    static let description = IntentDescription("How weekly usage grew over time.")
+
+    @Parameter(title: "Accounts", description: "Leave empty to show every account.")
+    var accounts: [AccountEntity]?
+
+    @Parameter(title: "Period", default: .week)
+    var period: ProgressPeriod
+
+    @Parameter(title: "Background", default: .standard)
+    var background: BackgroundStyle
+
+    var accountIds: [String] { accounts?.map(\.id) ?? [] }
+}
+
+enum ProgressPeriod: String, AppEnum {
+    case week, month
+
+    var days: Int { self == .week ? 7 : 28 }
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Period"
+    static let caseDisplayRepresentations: [ProgressPeriod: DisplayRepresentation] = [
+        .week: "This week",
+        .month: "Last 4 weeks",
+    ]
+}

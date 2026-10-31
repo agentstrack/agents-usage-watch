@@ -3,6 +3,7 @@ import SwiftUI
 /// The panel that opens from the menu bar item.
 struct MenuView: View {
     @EnvironmentObject private var store: Store
+    @AppStorage("menuChartDays") private var chartDays = 7
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -41,6 +42,7 @@ struct MenuView: View {
                     .frame(maxHeight: 520)
                     .fixedSize(horizontal: false, vertical: true)
                 }
+                progress(rows)
             }
 
             Divider()
@@ -56,5 +58,22 @@ struct MenuView: View {
         }
         .padding(14)
         .frame(width: 340)
+    }
+
+    /// How weekly usage grew: this week or the last 4 weeks, from the app's own history.
+    private func progress(_ rows: [Row]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Progress").font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Picker("", selection: $chartDays) {
+                    Text("Week").tag(7)
+                    Text("4 weeks").tag(28)
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize().controlSize(.small)
+            }
+            ProgressChart(rows: rows, series: store.series, days: chartDays, now: .now)
+                .frame(height: 120)
+        }
     }
 }

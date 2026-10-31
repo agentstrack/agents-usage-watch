@@ -197,7 +197,14 @@ struct Background: View {
     }
 }
 
-@main struct UsageWidget: Widget {
+@main struct Widgets: WidgetBundle {
+    var body: some Widget {
+        UsageWidget()
+        ProgressWidget()
+    }
+}
+
+struct UsageWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "AgentsUsageWatch", intent: ConfigIntent.self, provider: Provider()) { e in
             UsageView(e: e)
@@ -207,5 +214,71 @@ struct Background: View {
         .configurationDisplayName("AgentsUsageWatch")
         .description("Weekly and 5-hour plan limits per Claude Code account.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+    }
+}
+
+// MARK: - Progress widget
+
+struct ProgressEntry: TimelineEntry {
+    let date: Date
+    let snap: Snapshot?
+    let config: ProgressIntent
+}
+
+/// The chart only changes when the app has new data (it reloads the widget then), so one entry is enough.
+struct ProgressProvider: AppIntentTimelineProvider {
+    func placeholder(in: Context) -> ProgressEntry { ProgressEntry(date: .now, snap: .sample, config: ProgressIntent()) }
+    func snapshot(for config: ProgressIntent, in context: Context) async -> ProgressEntry {
+        ProgressEntry(date: .now, snap: Snapshot.load() ?? (context.isPreview ? .sample : nil), config: config)
+    }
+    func timeline(for config: ProgressIntent, in: Context) async -> Timeline<ProgressEntry> {
+        Timeline(entries: [ProgressEntry(date: .now, snap: Snapshot.load(), config: config)], policy: .after(.now + 30 * 60))
+    }
+}
+
+struct ProgressWidgetView: View {
+    let e: ProgressEntry
+    @Environment(\.widgetFamily) var family
+
+    var body: some View {
+        if let s = e.snap {
+            let rows = s.rows(only: e.config.accountIds).map { $0.applyingResets(at: e.date) }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(e.config.period == .week ? "This week" : "Last 4 weeks")
+                        .font(.system(size: 13, weight: .bold)).tracking(-0.2)
+                    Spacer(minLength: 4)
+                    // Current weekly % per account, in the chart's colours
+                    ForEach(Array(rows.prefix(family == .systemLarge ? 5 : 3).enumerated()), id: \.element.id) { i, row in
+                        HStack(spacing: 3) {
+                            Circle().fill(ProgressChart.palette[i % ProgressChart.palette.count]).frame(width: 6, height: 6)
+                            Text(row.name).font(.system(size: 9, weight: .semibold)).lineLimit(1)
+                            Pct(value: row.d7, size: 10)
+                        }
+                    }
+                }
+                ProgressChart(rows: rows, series: s.series ?? [:], days: e.config.period.days, now: e.date,
+                              compact: family == .systemSmall)
+                if family == .systemLarge, rows.count == 1, let row = rows.first {
+                    TrendLine(row: row, now: e.date).font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+            }
+        } else {
+            Text("No usage data yet. Open the AgentsUsageWatch menu bar app.")
+                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
+    }
+}
+
+struct ProgressWidget: Widget {
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(kind: "AgentsUsageWatchProgress", intent: ProgressIntent.self, provider: ProgressProvider()) { e in
+            ProgressWidgetView(e: e)
+                .containerBackground(for: .widget) { Background(style: e.config.background) }
+                .widgetURL(URL(string: "agentsusagewatch://refresh"))
+        }
+        .configurationDisplayName("Usage Progress")
+        .description("How your weekly usage grew this week or over the last 4 weeks.")
+        .supportedFamilies([.systemMedium, .systemLarge])
     }
 }

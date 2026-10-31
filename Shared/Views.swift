@@ -1,10 +1,11 @@
+import Charts
 import SwiftUI
 import WidgetKit
 
 // Views shared by the widget and the menu bar panel.
 
-// Coral accent for the Ultra chip and the tinted widget background.
-let accent = Color(red: 0.85, green: 0.47, blue: 0.34)
+// AgentsTrack indigo for the Ultra chip, the tinted widget background and the first chart line.
+let accent = Color(red: 0.39, green: 0.40, blue: 0.95)
 
 extension Tone {
     var color: Color {
@@ -157,5 +158,69 @@ struct DetailCard: View {
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.primary.opacity(0.06)))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(row.accessibilitySummary(at: now))
+    }
+}
+
+// MARK: - Progress chart
+
+/// Weekly % over time, one line per account. With a single account over one week it shows that account's own
+/// week (start to reset) with a dashed even-pace line, so above the line means ahead of pace.
+struct ProgressChart: View {
+    let rows: [Row]
+    let series: [String: [Point]]
+    let days: Int            // 7 or 28
+    let now: Date
+    var compact = false
+
+    static let palette: [Color] = [accent, .teal, .orange, .pink, .green]
+
+    private var single: Row? { rows.count == 1 && days == 7 ? rows.first : nil }
+
+    private var domain: ClosedRange<Date> {
+        if let r = single?.d7Reset, r > now { return (r - Usage.week)...r }
+        return (now - Double(days) * 86400)...now
+    }
+
+    var body: some View {
+        let names = rows.map(\.name)
+        Chart {
+            ForEach(rows) { row in
+                ForEach(points(row), id: \.t) { p in
+                    LineMark(x: .value("Time", p.t), y: .value("Weekly %", p.v), series: .value("Account", row.name))
+                        .foregroundStyle(by: .value("Account", row.name))
+                        .interpolationMethod(.monotone)
+                        .lineStyle(StrokeStyle(lineWidth: compact ? 1.5 : 2))
+                }
+            }
+            if let r = single?.d7Reset, r > now {
+                LineMark(x: .value("Time", r - Usage.week), y: .value("Weekly %", 0), series: .value("Account", "pace"))
+                    .foregroundStyle(Color.secondary.opacity(0.6))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                LineMark(x: .value("Time", r), y: .value("Weekly %", 100), series: .value("Account", "pace"))
+                    .foregroundStyle(Color.secondary.opacity(0.6))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            }
+        }
+        .chartForegroundStyleScale(domain: names, range: Array(Self.palette.prefix(max(names.count, 1))))
+        .chartXScale(domain: domain)
+        .chartYScale(domain: 0...100)
+        .chartYAxis {
+            AxisMarks(values: [0, 50, 100]) { v in
+                AxisGridLine().foregroundStyle(Color.primary.opacity(0.08))
+                if !compact { AxisValueLabel { Text("\(v.as(Int.self) ?? 0)%").font(.system(size: 8)) } }
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .day, count: days > 7 ? 7 : 1)) { _ in
+                AxisGridLine().foregroundStyle(Color.primary.opacity(0.05))
+                if !compact { AxisValueLabel(format: days > 7 ? .dateTime.day().month(.abbreviated) : .dateTime.weekday(.narrow)).font(.system(size: 8)) }
+            }
+        }
+        .chartLegend(rows.count > 1 && !compact ? .visible : .hidden)
+        .accessibilityLabel("Weekly usage over the last \(days) days")
+    }
+
+    private func points(_ row: Row) -> [Point] {
+        (series[row.id] ?? []).filter { domain.contains($0.t) }
     }
 }
