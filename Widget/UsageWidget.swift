@@ -139,7 +139,7 @@ struct UsageView: View {
 
     // Up to 4 cards when they fit (Ultra cards are shorter), else 3.
     private func large(_ s: Snapshot, _ rows: [Row]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Usage").font(.system(size: 15, weight: .bold)).tracking(-0.2)
                 Spacer()
@@ -153,14 +153,15 @@ struct UsageView: View {
             ViewThatFits(in: .vertical) {
                 cards(s, rows.prefix(4))
                 cards(s, rows.prefix(3))
+                cards(s, rows.prefix(3), compact: true)
             }
             Spacer(minLength: 0)
         }
     }
 
-    private func cards(_ s: Snapshot, _ rows: ArraySlice<Row>) -> some View {
-        VStack(spacing: 8) {
-            ForEach(rows) { DetailCard(row: $0, now: e.date, showPace: e.config.showPace, showTrend: e.config.showTrend) }
+    private func cards(_ s: Snapshot, _ rows: ArraySlice<Row>, compact: Bool = false) -> some View {
+        VStack(spacing: compact ? 6 : 8) {
+            ForEach(rows) { DetailCard(row: $0, now: e.date, showPace: e.config.showPace, showTrend: e.config.showTrend, compact: compact) }
         }
     }
 
@@ -169,10 +170,10 @@ struct UsageView: View {
         let stale = s.isStale(at: e.date)
         return HStack(spacing: 3) {
             if stale { Image(systemName: "exclamationmark.triangle.fill") }
-            Text(stale ? "App not running · updated " : "Updated ") + Text(s.updated, format: .relative(presentation: .named))
+            Text(stale ? "App not running · " : "Updated ") + Text(s.updated, format: .relative(presentation: .named, unitsStyle: .abbreviated))
         }
         .font(.system(size: 9)).foregroundStyle(stale ? AnyShapeStyle(Tone.warn.color) : AnyShapeStyle(.secondary))
-        .lineLimit(1)
+        .lineLimit(1).minimumScaleFactor(0.8)
     }
 
     private func message(_ text: String, icon: String) -> some View {

@@ -90,11 +90,17 @@ struct StatusNote: View {
     let row: Row
     var body: some View {
         if let label = row.status.label {
-            HStack(spacing: 3) {
+            let note = HStack(spacing: 3) {
                 Image(systemName: "exclamationmark.circle.fill")
                 Text(label + (row.fetchedAt.map { " · as of \($0.formatted(date: .omitted, time: .shortened))" } ?? ""))
             }
             .font(.system(size: 10)).foregroundStyle(Tone.warn.color).lineLimit(1)
+            // "Set up in Settings" opens the app's Settings (widget tap -> agentsusagewatch://settings)
+            if row.status == .notConnected, let url = URL(string: "agentsusagewatch://settings") {
+                Link(destination: url) { note }
+            } else {
+                note
+            }
         }
     }
 }
@@ -137,14 +143,15 @@ struct FiveHourLine: View {
 struct DetailCard: View {
     let row: Row, now: Date
     var showPace = true, showTrend = true
+    var compact = false   // tighter card for when the full one doesn't fit the widget height
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: compact ? 4 : 6) {
             HStack(alignment: .firstTextBaseline) {
                 AccountHeader(row: row)
-                Pct(value: row.d7, size: 20)
+                Pct(value: row.d7, size: compact ? 17 : 20)
             }
-            UsageBar(pct: row.d7 ?? 0, pace: showPace ? row.weekElapsed(at: now) : nil, height: 8)
+            UsageBar(pct: row.d7 ?? 0, pace: showPace ? row.weekElapsed(at: now) : nil, height: compact ? 6 : 8)
             HStack(spacing: 4) {
                 if row.status != .ok { StatusNote(row: row) }
                 else if let r = row.d7Reset { Text("Resets in \(Usage.countdown(to: r, from: now))") }
@@ -154,7 +161,7 @@ struct DetailCard: View {
             .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             if let h5 = row.h5 { FiveHourLine(pct: h5, reset: row.h5Reset, now: now) }
         }
-        .padding(10)
+        .padding(compact ? 8 : 10)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.primary.opacity(0.06)))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(row.accessibilitySummary(at: now))

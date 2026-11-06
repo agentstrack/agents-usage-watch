@@ -30,8 +30,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// agentsusagewatch://refresh — tapping the widget opens this URL.
+    /// agentsusagewatch://settings — the widget's "Set up in Settings" note opens the Settings window.
     func application(_ application: NSApplication, open urls: [URL]) {
         log.info("opened by URL")
+        if urls.contains(where: { $0.host == "settings" }) {
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            return
+        }
         Task { @MainActor in Store.shared.refreshNow() }
     }
 }
