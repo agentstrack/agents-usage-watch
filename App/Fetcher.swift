@@ -47,6 +47,42 @@ enum Fetcher {
         }
     }
 
+    /// Local first: the status line file (written while Claude Code runs) when it is under 5 min old. The endpoint
+    /// is only asked when that's missing or older, at most once per 5 min per account (longer after a 429, kept
+    /// across launches), and a failed ask falls back to the local values. nil = nothing to update right now.
+    static func localFirst(_ account: Account, wakeExpired: Bool) async -> FetchResult? {
+        let local = StatusLine.read(account)
+        if case let .ok(_, _, at) = local, Date.now.timeIntervalSince(at) < freshFor { return local }
+        guard endpointAllowed(account.id) else {
+            if case .ok = local { return local }
+            return nil
+        }
+        let remote = await fetch(account, wakeExpired: wakeExpired)
+        switch remote {
+        case .ok: block(account.id, for: minGap)
+        case let .failed(.rateLimited, _, retryAfter): block(account.id, for: max(retryAfter ?? 0, 600))
+        case .failed: block(account.id, for: minGap)
+        case .spend: break
+        }
+        if case .failed = remote, case .ok = local { return local }
+        return remote
+    }
+
+    static let freshFor: TimeInterval = 300, minGap: TimeInterval = 300
+
+    private static func endpointAllowed(_ id: String) -> Bool {
+        let saved = UserDefaults.standard.dictionary(forKey: "endpointBlockedUntil") as? [String: Double] ?? [:]
+        return (saved[id] ?? 0) <= Date.now.timeIntervalSince1970
+    }
+
+    private static func block(_ id: String, for seconds: TimeInterval) {
+        lock.withLock {
+            var saved = UserDefaults.standard.dictionary(forKey: "endpointBlockedUntil") as? [String: Double] ?? [:]
+            saved[id] = Date.now.timeIntervalSince1970 + seconds
+            UserDefaults.standard.set(saved, forKey: "endpointBlockedUntil")
+        }
+    }
+
     // One wake-up per account per 30 min, so a broken login doesn't spawn claude on every refresh
     private static var lastWake: [String: Date] = [:]
     private static let lock = NSLock()

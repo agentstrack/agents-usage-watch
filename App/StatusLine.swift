@@ -4,6 +4,7 @@ import Foundation
 /// One account's latest windows, from whichever source this build uses.
 enum FetchResult {
     case ok(Parse.Windows, plan: String, at: Date)
+    case spend(Spend, at: Date)   // usage without a limit (opencode)
     case failed(Row.Status, plan: String?, retryAfter: TimeInterval?)
 }
 
@@ -15,6 +16,14 @@ enum StatusLine {
     static let root = URL(fileURLWithPath: Accounts.home + "/.agentsusagewatch", isDirectory: true)
     static let helper = root.appendingPathComponent("statusline")
     static let dataDir = root.appendingPathComponent("claude", isDirectory: true)
+
+    // Antigravity has its own helper and a fixed data folder (it has no per-config-folder login)
+    static let agyHelper = root.appendingPathComponent("statusline-agy")
+    static let agyDir = root.appendingPathComponent("antigravity", isDirectory: true)
+    static func helper(for a: Account) -> URL { a.isAntigravity ? agyHelper : helper }
+    static func nextFile(for a: Account) -> URL {
+        a.isAntigravity ? agyDir.appendingPathComponent("agy.next") : dataDir.appendingPathComponent(key(a.id) + ".next")
+    }
 
     /// Same key the helper computes: sha256 of the config folder path, first 16 hex chars.
     static func key(_ configDir: String) -> String {
@@ -38,23 +47,27 @@ enum StatusLine {
 
     /// Copies the bundled helper to a path without spaces, so it can go in settings.json unquoted.
     static func installHelper() {
-        guard let src = Bundle.main.url(forResource: "statusline", withExtension: "sh"),
-              let new = try? Data(contentsOf: src) else { return }
         try? FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        if (try? Data(contentsOf: helper)) != new {
-            try? new.write(to: helper, options: .atomic)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+        try? FileManager.default.createDirectory(at: agyDir, withIntermediateDirectories: true)
+        for (resource, dest) in [("statusline", helper), ("statusline-agy", agyHelper)] {
+            guard let src = Bundle.main.url(forResource: resource, withExtension: "sh"),
+                  let new = try? Data(contentsOf: src) else { continue }
+            if (try? Data(contentsOf: dest)) != new {
+                try? new.write(to: dest, options: .atomic)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dest.path)
+            }
         }
     }
 
     /// The real settings file. Several config folders often symlink one shared settings.json, and writing
     /// through the link would replace it with a copy.
     static func settingsFile(_ account: Account) -> URL {
-        URL(fileURLWithPath: account.id + "/settings.json").resolvingSymlinksInPath()
+        if account.isAntigravity { return URL(fileURLWithPath: Antigravity.dir + "/settings.json") }
+        return URL(fileURLWithPath: account.id + "/settings.json").resolvingSymlinksInPath()
     }
 
     static func isConnected(_ account: Account) -> Bool {
-        command(in: settings(settingsFile(account))) == helper.path
+        command(in: settings(settingsFile(account))) == helper(for: account).path
     }
 
     /// Points statusLine at the helper and remembers the previous command for every account sharing this
@@ -64,19 +77,20 @@ enum StatusLine {
         let file = settingsFile(account)
         var s = settings(file)
         let previous = command(in: s)
-        guard previous != helper.path else { return }
+        guard previous != helper(for: account).path else { return }
         let backup = file.appendingPathExtension("agentsusagewatch-backup")
         if FileManager.default.fileExists(atPath: file.path), !FileManager.default.fileExists(atPath: backup.path) {
             try FileManager.default.copyItem(at: file, to: backup)
         }
         for a in accounts where settingsFile(a) == file {
-            let next = dataDir.appendingPathComponent(key(a.id) + ".next")
+            let next = nextFile(for: a)
+            try FileManager.default.createDirectory(at: next.deletingLastPathComponent(), withIntermediateDirectories: true)
             if let previous { try Data(previous.utf8).write(to: next, options: .atomic) }
             else { try? FileManager.default.removeItem(at: next) }
         }
         var line = s["statusLine"] as? [String: Any] ?? [:]
         line["type"] = "command"
-        line["command"] = helper.path
+        line["command"] = helper(for: account).path
         s["statusLine"] = line
         try write(s, to: file)
     }
@@ -85,8 +99,8 @@ enum StatusLine {
     static func disconnect(_ account: Account, all accounts: [Account]) throws {
         let file = settingsFile(account)
         var s = settings(file)
-        guard command(in: s) == helper.path else { return }
-        let next = dataDir.appendingPathComponent(key(account.id) + ".next")
+        guard command(in: s) == helper(for: account).path else { return }
+        let next = nextFile(for: account)
         if let previous = try? String(contentsOf: next, encoding: .utf8), !previous.isEmpty {
             var line = s["statusLine"] as? [String: Any] ?? [:]
             line["command"] = previous
@@ -96,7 +110,7 @@ enum StatusLine {
         }
         try write(s, to: file)
         for a in accounts where settingsFile(a) == file {
-            try? FileManager.default.removeItem(at: dataDir.appendingPathComponent(key(a.id) + ".next"))
+            try? FileManager.default.removeItem(at: nextFile(for: a))
         }
     }
 

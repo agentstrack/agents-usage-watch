@@ -69,12 +69,12 @@ private struct AccountsSettings: View {
                 Button("Add Folder…", action: addFolder)
                 Button("Rescan") { store.rescan() }
                 Spacer()
-                Text("Drag to reorder. Hidden accounts aren't shown.").font(.caption).foregroundStyle(.secondary)
+                Text("Drag to reorder. Each widget also picks its accounts: right-click it > Edit.").font(.caption).foregroundStyle(.secondary)
             }
-#if !TESTING
-            Text("Set up adds a small helper to the account's Claude Code status line. Claude Code hands it your 5-hour and weekly percentages after each message; the helper saves just those numbers on this Mac and still runs your previous status line, so it looks the same. Your settings.json is backed up first, and Remove puts it back.")
+            Text("Codex, Antigravity and opencode are detected automatically. Codex limits come from its session logs, opencode shows what it spent, and Antigravity needs Set up (its 3P row covers Claude and GPT-OSS models). Values update while you use each tool.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-#endif
+            Text("Set up adds a small helper to the account's Claude Code or Antigravity status line. Claude Code hands it your 5-hour and weekly percentages after each message; the helper saves just those numbers on this Mac and still runs your previous status line, so it looks the same. Your settings.json is backed up first, and Remove puts it back.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
         .padding()
     }
@@ -85,7 +85,7 @@ private struct AccountsSettings: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.showsHiddenFiles = true
-        panel.message = "Choose a Claude Code config folder (the one you set as CLAUDE_CONFIG_DIR)"
+        panel.message = "Choose a Claude Code config folder (the one you set as CLAUDE_CONFIG_DIR), or ~/.codex for Codex"
         panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
         NSApp.activate(ignoringOtherApps: true)
         if panel.runModal() == .OK, let url = panel.url { store.addAccount(folder: url) }
@@ -100,8 +100,13 @@ private struct AccountRowView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Toggle("", isOn: Binding(get: { !account.hidden }, set: { account.hidden = !$0; store.refreshNow() }))
-                .labelsHidden().help("Show this account")
+            VStack(alignment: .leading, spacing: 2) {
+                Toggle("Menu bar", isOn: Binding(get: { account.inMenu }, set: { account.hidden = !$0; store.refreshNow() }))
+                    .help("Show in the menu bar panel and notifications")
+                Toggle("Widgets", isOn: Binding(get: { account.inWidgets }, set: { account.widgetHidden = !$0; store.refreshNow() }))
+                    .help("Offer in the widgets (each widget still picks its accounts: right-click it > Edit)")
+            }
+            .toggleStyle(.checkbox).controlSize(.small).font(.caption)
             VStack(alignment: .leading, spacing: 2) {
                 TextField("Name", text: $draft)
                     .textFieldStyle(.plain).font(.system(size: 13, weight: .semibold))
@@ -112,11 +117,9 @@ private struct AccountRowView: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             Spacer()
-            if let row { PlanChip(plan: row.plan) }
+            if let row, row.spend == nil { PlanChip(plan: row.plan) }
             status
-#if !TESTING
-            setup
-#endif
+            if account.usesStatusLine { setup }   // testing build too: local values mean fewer endpoint calls
             if account.manual {
                 Button(role: .destructive) { store.removeAccount(account.id) } label: { Image(systemName: "minus.circle") }
                     .buttonStyle(.borderless).help("Remove")
@@ -127,7 +130,7 @@ private struct AccountRowView: View {
     }
 
     @ViewBuilder private var status: some View {
-        if account.hidden {
+        if !account.inMenu && !account.inWidgets {
             Text("Hidden").font(.caption).foregroundStyle(.secondary)
         } else if let label = row?.status.label {
             Text(label).font(.caption).foregroundStyle(Tone.warn.color)
@@ -136,7 +139,6 @@ private struct AccountRowView: View {
         }
     }
 
-#if !TESTING
     @State private var setupError: String?
 
     @ViewBuilder private var setup: some View {
@@ -151,9 +153,8 @@ private struct AccountRowView: View {
         }
         .controlSize(.small)
         .help(setupError ?? (connected ? "Stop reading this account's status line and restore the previous one"
-                                       : "Read this account's limits from its Claude Code status line"))
+                                       : "Read this account's limits from its status line"))
     }
-#endif
 
     private func commit() {
         let name = draft.trimmingCharacters(in: .whitespaces)
@@ -243,7 +244,7 @@ private struct AboutView: View {
             Text("AgentsUsageWatch").font(.title2.bold())
             Text("Version \(Bundle.main.version)").foregroundStyle(.secondary)
 #if TESTING
-            Text("Testing build: reads each Claude Code login from your Keychain and asks an unofficial usage endpoint for your limits. Not for distribution.")
+            Text("Testing build: uses Claude Code's status line when it is fresh, otherwise reads the login from your Keychain and asks an unofficial usage endpoint (at most once per 5 minutes per account). Not for distribution.")
                 .font(.callout).foregroundStyle(.orange).multilineTextAlignment(.center).frame(maxWidth: 380)
 #else
             Text("Shows the plan limits your coding agents report, on this Mac. Claude limits come from Claude Code's own status line, so they update while you use Claude Code. Nothing is sent anywhere. Not affiliated with Anthropic.")

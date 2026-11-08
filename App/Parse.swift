@@ -33,6 +33,42 @@ enum Parse {
         return subscription ?? (t.isEmpty ? "-" : t)
     }
 
+    /// One Codex session log line (~/.codex/sessions/**/rollout-*.jsonl). Token-count events carry
+    /// payload.rate_limits {primary, secondary: {used_percent, window_minutes, resets_at}, plan_type}; which window is
+    /// primary depends on the plan, so go by window length (<= 10 h = the 5-hour window, else weekly).
+    /// nil = not a rate-limit line.
+    static func codex(_ line: Data) -> (windows: Windows, plan: String?, at: Date?)? {
+        guard let root = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              let rl = (root["payload"] as? [String: Any])?["rate_limits"] as? [String: Any] else { return nil }
+        var w = Windows()
+        for k in ["primary", "secondary"] {
+            guard let o = rl[k] as? [String: Any], let pct = number(o["used_percent"]) else { continue }
+            let reset = number(o["resets_at"]).map { Date(timeIntervalSince1970: $0) }
+            if (number(o["window_minutes"]) ?? 10080) <= 600 { w.h5 = pct; w.h5Reset = reset } else { w.d7 = pct; w.d7Reset = reset }
+        }
+        guard w.h5 != nil || w.d7 != nil else { return nil }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return (w, rl["plan_type"] as? String, (root["timestamp"] as? String).flatMap { f.date(from: $0) })
+    }
+
+    /// Antigravity CLI status line: `quota` has "<family>-5h" / "<family>-weekly" windows, family "gemini" or "3p"
+    /// (third-party models), each {remaining_fraction 0...1, reset_time ISO8601}. Our helper saves
+    /// {"quota":{…},"plan":"Google AI Pro"}. Used % = (1 - remaining) * 100. nil = nothing for that family.
+    static func antigravity(_ data: Data, family: String) -> (windows: Windows, plan: String?)? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let quota = root["quota"] as? [String: Any] else { return nil }
+        let f = ISO8601DateFormatter()
+        func window(_ k: String) -> (Double?, Date?) {
+            guard let o = quota["\(family)-\(k)"] as? [String: Any], let rem = number(o["remaining_fraction"]) else { return (nil, nil) }
+            return (min(max(1 - rem, 0), 1) * 100, (o["reset_time"] as? String).flatMap { f.date(from: $0) })
+        }
+        var w = Windows()
+        (w.h5, w.h5Reset) = window("5h")
+        (w.d7, w.d7Reset) = window("weekly")
+        return w.h5 == nil && w.d7 == nil ? nil : (w, root["plan"] as? String)
+    }
+
     private static func number(_ v: Any?) -> Double? { (v as? NSNumber)?.doubleValue }
 
 #if TESTING

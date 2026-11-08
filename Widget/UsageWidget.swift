@@ -35,8 +35,11 @@ struct CompactRow: View {
                     Text("5h \(Int(h5.rounded()))%").font(.system(size: 10, weight: .medium)).monospacedDigit()
                         .foregroundStyle(Usage.tone(h5) == .ok ? .secondary : Usage.tone(h5).color)
                 }
-                Pct(value: row.d7)
+                if let spend = row.spend { SpendHero(spend: spend, size: 13) } else { Pct(value: row.d7) }
             }
+            if let spend = row.spend {
+                if caption { SpendLine(spend: spend) }
+            } else {
             HStack(spacing: 8) {
                 UsageBar(pct: row.d7 ?? 0, pace: config.showPace ? row.weekElapsed(at: now) : nil)
                 // Without the caption line, keep the weekly reset visible next to the bar
@@ -56,6 +59,7 @@ struct CompactRow: View {
                     }
                 }
                 .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+            }
             }
         }
         .accessibilityElement(children: .ignore)
@@ -95,6 +99,14 @@ struct UsageView: View {
                 Spacer(minLength: 2)
                 PlanChip(plan: row.plan)
             }
+            if let spend = row.spend {
+                VStack(spacing: 2) {
+                    SpendHero(spend: spend, size: 24)
+                    Text("today").font(.system(size: 9)).foregroundStyle(.secondary)
+                    Text("\(Spend.tokens(spend.tokensToday)) tokens").font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
             ZStack {
                 Circle().stroke(Color.primary.opacity(0.1), lineWidth: 7)
                 Circle().trim(from: 0, to: min(row.d7 ?? 0, 100) / 100)
@@ -106,6 +118,7 @@ struct UsageView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
             if let h5 = row.h5 {
                 FiveHourLine(pct: h5, reset: nil, now: e.date)
             } else if let r = row.d7Reset {
@@ -120,16 +133,16 @@ struct UsageView: View {
     // Three accounts with captions don't fit 155pt, so fall back to header + bar only.
     private func medium(_ s: Snapshot, _ rows: [Row]) -> some View {
         ViewThatFits(in: .vertical) {
-            mediumStack(s, rows, captions: true)
-            mediumStack(s, rows, captions: false)
+            mediumStack(s, rows.prefix(3), captions: true)
+            mediumStack(s, rows.prefix(4), captions: false)
         }
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
-    private func mediumStack(_ s: Snapshot, _ rows: [Row], captions: Bool) -> some View {
+    private func mediumStack(_ s: Snapshot, _ rows: ArraySlice<Row>, captions: Bool) -> some View {
         // Spacers spread rows over the full height instead of bunching them at the top
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(rows.prefix(3).enumerated()), id: \.element.id) { i, row in
+            ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
                 if i > 0 { Spacer(minLength: 6) }
                 CompactRow(row: row, now: e.date, config: e.config, caption: captions)
             }
@@ -150,8 +163,10 @@ struct UsageView: View {
                 .buttonStyle(.plain).foregroundStyle(.secondary)
                 .accessibilityLabel("Refresh now")
             }
+            // Prefer showing every account (up to 4): normal cards, then tight ones, then drop to 3
             ViewThatFits(in: .vertical) {
                 cards(s, rows.prefix(4))
+                cards(s, rows.prefix(4), compact: true)
                 cards(s, rows.prefix(3))
                 cards(s, rows.prefix(3), compact: true)
             }
@@ -243,7 +258,8 @@ struct ProgressWidgetView: View {
 
     var body: some View {
         if let s = e.snap {
-            let rows = s.rows(only: e.config.accountIds).map { $0.applyingResets(at: e.date) }
+            // Spend-only accounts (opencode) have no weekly % to chart
+            let rows = s.rows(only: e.config.accountIds).map { $0.applyingResets(at: e.date) }.filter { $0.spend == nil }
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(e.config.period == .week ? "This week" : "Last 4 weeks")

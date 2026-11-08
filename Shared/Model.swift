@@ -15,6 +15,7 @@ struct Row: Codable, Identifiable, Equatable {
     let today: Double?        // weekly % added today
     let status: Status
     let fetchedAt: Date?      // last successful read; values are "as of" this when status isn't .ok
+    var spend: Spend? = nil   // agents that report usage, not a limit (opencode): shown instead of the bars
 
     enum Status: String, Codable {
         case ok, expired, notLoggedIn, rateLimited, apiChanged, offline, error
@@ -37,8 +38,8 @@ struct Row: Codable, Identifiable, Equatable {
             case .offline: "Offline"
             case .error: "Couldn't update"
             case .notConnected: "Set up in Settings"
-            case .waiting: "Waiting for Claude Code"
-            case .idle: "Last Claude Code use"
+            case .waiting: "Waiting for first message"
+            case .idle: "Last used"
             }
         }
     }
@@ -64,7 +65,7 @@ struct Row: Codable, Identifiable, Equatable {
         func reset(_ v: Double?, _ at: Date?) -> Double? { (at.map { $0 <= now } ?? false) ? 0 : v }
         return Row(id: id, name: name, plan: plan, h5: reset(h5, h5Reset), h5Reset: h5Reset,
                    d7: reset(d7, d7Reset), d7Reset: d7Reset, trendPerDay: trendPerDay, today: today,
-                   status: status, fetchedAt: fetchedAt)
+                   status: status, fetchedAt: fetchedAt, spend: spend)
     }
 
     /// One VoiceOver sentence per account, e.g. "Work, Max. Week 9 percent used, resets in 4d 11h. 5-hour 5 percent."
@@ -72,8 +73,20 @@ struct Row: Codable, Identifiable, Equatable {
         var parts = ["\(name.capitalized), \(Usage.planLabel(plan))\(status.label.map { ", \($0)" } ?? "")"]
         if let d7 { parts.append("Week \(Int(d7.rounded())) percent used" + (d7Reset.map { ", resets in \(Usage.countdown(to: $0, from: now))" } ?? "")) }
         if let h5 { parts.append("5-hour \(Int(h5.rounded())) percent") }
+        if let spend { parts.append("Today \(Spend.tokens(spend.tokensToday)) tokens, \(Spend.cost(spend.costToday)). Last 7 days \(Spend.cost(spend.costWeek))") }
         return parts.joined(separator: ". ")
     }
+}
+
+/// Tokens and cost for agents with no plan window (pay-as-you-go): today and the last 7 days.
+struct Spend: Codable, Equatable {
+    var tokensToday = 0, tokensWeek = 0
+    var costToday = 0.0, costWeek = 0.0
+
+    static func tokens(_ n: Int) -> String {
+        n >= 1_000_000 ? String(format: "%.1fM", Double(n) / 1e6) : n >= 1000 ? String(format: "%.1fk", Double(n) / 1e3) : "\(n)"
+    }
+    static func cost(_ c: Double) -> String { c > 0 && c < 0.01 ? "<$0.01" : String(format: "$%.2f", c) }
 }
 
 /// One point of an account's weekly-% history, for the progress chart.

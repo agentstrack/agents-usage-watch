@@ -22,7 +22,13 @@ final class Store: ObservableObject {
     private let defaults = UserDefaults.standard
     private var history: [Sample] = []
     private var timer: Timer?
-    private var backoff: [String: (until: Date, delay: TimeInterval)] = [:]
+    // Kept across launches: relaunching must not retry an endpoint that just said "rate limited"
+    private var backoff: [String: (until: Date, delay: TimeInterval)] = {
+        let saved = UserDefaults.standard.dictionary(forKey: "backoff") as? [String: [Double]] ?? [:]
+        return saved.compactMapValues { $0.count == 2 ? (Date(timeIntervalSince1970: $0[0]), $0[1]) : nil }
+    }() {
+        didSet { UserDefaults.standard.set(backoff.mapValues { [$0.until.timeIntervalSince1970, $0.delay] }, forKey: "backoff") }
+    }
     private var lastWidgetReload = Date.distantPast
     private var lastWidgetKey = ""
     private var forceWidgetReload = false
@@ -48,9 +54,14 @@ final class Store: ObservableObject {
         return s
     }
 
-    /// Visible accounts' rows in the user's order, with passed resets applied.
+    /// Rows for the menu bar panel and alerts, in the user's order, with passed resets applied.
     var visibleRows: [Row] {
-        accounts.filter { !$0.hidden }.compactMap { rows[$0.id]?.applyingResets(at: .now) }
+        accounts.filter(\.inMenu).compactMap { rows[$0.id]?.applyingResets(at: .now) }
+    }
+
+    /// Rows the widgets can show (each widget then narrows to the accounts chosen in its own settings).
+    var widgetRows: [Row] {
+        accounts.filter(\.inWidgets).compactMap { rows[$0.id]?.applyingResets(at: .now) }
     }
 
     // MARK: Lifecycle
@@ -60,9 +71,7 @@ final class Store: ObservableObject {
         rows = Dictionary(uniqueKeysWithValues: (Snapshot.load()?.rows ?? []).map { ($0.id, $0) })  // last known values
         history = History.load()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-#if !TESTING
-        if accounts.contains(where: { StatusLine.isConnected($0) }) { StatusLine.installHelper() }  // keep it current
-#endif
+        if accounts.contains(where: { $0.usesStatusLine && StatusLine.isConnected($0) }) { StatusLine.installHelper() }  // keep it current
         observeSystem()
         refreshNow()
     }
@@ -93,7 +102,6 @@ final class Store: ObservableObject {
         Task { await refresh() }
     }
 
-#if !TESTING
     /// Settings > Accounts "Set up": points this account's status line at our helper.
     func connect(_ account: Account) throws {
         try StatusLine.connect(account, all: accounts)
@@ -104,7 +112,6 @@ final class Store: ObservableObject {
         try StatusLine.disconnect(account, all: accounts)
         refreshNow()
     }
-#endif
 
     private func schedule() {
         timer?.invalidate()
@@ -123,15 +130,20 @@ final class Store: ObservableObject {
         defer { refreshing = false; schedule() }
 
         let now = Date.now
-        let due = accounts.filter { !$0.hidden && (backoff[$0.id]?.until ?? .distantPast) <= now }
+        let due = accounts.filter { ($0.inMenu || $0.inWidgets) && (backoff[$0.id]?.until ?? .distantPast) <= now }
 #if TESTING
         let wake = wakeExpired
-        let results = await withTaskGroup(of: (Account, FetchResult).self) { group in
-            for a in due { group.addTask { (a, await Fetcher.fetch(a, wakeExpired: wake)) } }
-            return await group.reduce(into: []) { $0.append($1) }
+        let results = await withTaskGroup(of: (Account, FetchResult)?.self) { group in
+            for a in due { group.addTask {
+                if let r = Providers.read(a) { return (a, r) }
+                return await Fetcher.localFirst(a, wakeExpired: wake).map { (a, $0) }
+            } }
+            var out: [(Account, FetchResult)] = []
+            for await r in group { if let r { out.append(r) } }
+            return out
         }
 #else
-        let results = due.map { ($0, StatusLine.read($0, now: now)) }
+        let results = due.map { ($0, Providers.read($0) ?? StatusLine.read($0, now: now)) }
 #endif
         for (a, result) in results {
             if case let .failed(status, _, _) = result { log.notice("\(a.name, privacy: .public): \(status.rawValue, privacy: .public)") }
@@ -159,6 +171,11 @@ final class Store: ObservableObject {
                              today: Alerts.today(mine, current: w.d7, reset: w.d7Reset, now: now),
                              status: status, fetchedAt: at)
             if let d7 = w.d7 { History.append(Sample(t: at, id: a.id, d7: d7, r: w.d7Reset), to: &history) }
+        case let .spend(spend, at):
+            backoff[a.id] = nil
+            let status: Row.Status = now.timeIntervalSince(at) > StatusLine.idleAfter ? .idle : .ok
+            rows[a.id] = Row(id: a.id, name: a.name, plan: a.plan ?? "-", h5: nil, h5Reset: nil, d7: nil, d7Reset: nil,
+                             trendPerDay: nil, today: nil, status: status, fetchedAt: at, spend: spend)
         case let .failed(status, plan, retryAfter):
             if status == .rateLimited {
                 // Honour Retry-After, else back off 60 s -> 15 min
@@ -168,7 +185,7 @@ final class Store: ObservableObject {
             // Keep the last good values; only the status (and a fresher plan) changes
             rows[a.id] = Row(id: a.id, name: a.name, plan: plan ?? old?.plan ?? "-", h5: old?.h5, h5Reset: old?.h5Reset,
                              d7: old?.d7, d7Reset: old?.d7Reset, trendPerDay: old?.trendPerDay, today: old?.today,
-                             status: status, fetchedAt: old?.fetchedAt)
+                             status: status, fetchedAt: old?.fetchedAt, spend: old?.spend)
         }
     }
 
@@ -178,7 +195,7 @@ final class Store: ObservableObject {
         accounts[i].name = name
         if let r = rows[id] {
             rows[id] = Row(id: r.id, name: name, plan: r.plan, h5: r.h5, h5Reset: r.h5Reset, d7: r.d7, d7Reset: r.d7Reset,
-                           trendPerDay: r.trendPerDay, today: r.today, status: r.status, fetchedAt: r.fetchedAt)
+                           trendPerDay: r.trendPerDay, today: r.today, status: r.status, fetchedAt: r.fetchedAt, spend: r.spend)
         }
         writeSnapshot(force: true)
     }
@@ -190,7 +207,7 @@ final class Store: ObservableObject {
     /// (Between reloads its own timeline keeps countdowns moving.)
     func writeSnapshot(force: Bool = false) {
         if force { forceWidgetReload = true }
-        let rows = visibleRows
+        let rows = widgetRows
         let now = Date.now
         let series = Dictionary(uniqueKeysWithValues: rows.map {
             ($0.id, Alerts.series(history, id: $0.id, current: $0.d7, since: now - 28 * 86400, now: now))

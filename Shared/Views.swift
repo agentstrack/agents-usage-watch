@@ -76,7 +76,7 @@ struct AccountHeader: View {
     var body: some View {
         HStack(spacing: 5) {
             Text(row.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-            PlanChip(plan: row.plan)
+            if row.spend == nil { PlanChip(plan: row.plan) }
             if row.isLimitReached {
                 Text("LIMIT REACHED").font(.system(size: 8, weight: .bold)).tracking(0.6).foregroundStyle(.red)
             }
@@ -102,6 +102,23 @@ struct StatusNote: View {
                 note
             }
         }
+    }
+}
+
+/// Usage without a limit: "$0.43" hero + "Today 1.2M tokens · 7 days $2.10".
+struct SpendHero: View {
+    let spend: Spend
+    var size: CGFloat = 20
+    var body: some View {
+        Text(Spend.cost(spend.costToday)).font(.system(size: size, weight: .semibold, design: .rounded)).monospacedDigit()
+    }
+}
+
+struct SpendLine: View {
+    let spend: Spend
+    var body: some View {
+        Text("Today \(Spend.tokens(spend.tokensToday)) tokens · 7 days \(Spend.cost(spend.costWeek)) · \(Spend.tokens(spend.tokensWeek))")
+            .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
     }
 }
 
@@ -150,8 +167,12 @@ struct DetailCard: View {
         VStack(alignment: .leading, spacing: compact ? 4 : 6) {
             HStack(alignment: .firstTextBaseline) {
                 AccountHeader(row: row)
-                Pct(value: row.d7, size: compact ? 17 : 20)
+                if let spend = row.spend { SpendHero(spend: spend, size: compact ? 17 : 20) } else { Pct(value: row.d7, size: compact ? 17 : 20) }
             }
+            if let spend = row.spend {
+                if row.status != .ok { StatusNote(row: row) }
+                SpendLine(spend: spend)
+            } else {
             UsageBar(pct: row.d7 ?? 0, pace: showPace ? row.weekElapsed(at: now) : nil, height: compact ? 6 : 8)
             HStack(spacing: 4) {
                 if row.status != .ok { StatusNote(row: row) }
@@ -161,6 +182,7 @@ struct DetailCard: View {
             }
             .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             if let h5 = row.h5 { FiveHourLine(pct: h5, reset: row.h5Reset, now: now) }
+            }
         }
         .padding(compact ? 8 : 10)
         .frame(maxHeight: stretch ? 125 : nil)

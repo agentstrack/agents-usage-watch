@@ -19,6 +19,46 @@ check(Parse.statusLine(data(#"{"something_new":{}}"#)) == nil && Parse.statusLin
 check(Parse.plan(tier: "default_claude_max_20x", subscription: nil) == "ultra" && Parse.plan(tier: "default_claude_max_5x", subscription: nil) == "max",
       "plan from oauthAccount tier")
 
+// MARK: Parse — Codex rate_limits (shape seen in ~/.codex/sessions on 2026-10-29)
+let cx = Parse.codex(data(#"{"timestamp":"2026-10-29T13:57:41.195Z","payload":{"rate_limits":{"primary":{"used_percent":3.0,"window_minutes":10080,"resets_at":1793798974},"secondary":null,"plan_type":"plus"}}}"#))
+check(cx?.windows.d7 == 3 && cx?.windows.h5 == nil && cx?.plan == "plus" && cx?.at != nil, "codex weekly-only window")
+let cx2 = Parse.codex(data(#"{"payload":{"rate_limits":{"primary":{"used_percent":40,"window_minutes":300,"resets_at":1793490600},"secondary":{"used_percent":9,"window_minutes":10080,"resets_at":1793854800}}}}"#))
+check(cx2?.windows.h5 == 40 && cx2?.windows.d7 == 9, "codex 5h + weekly by window length")
+check(Parse.codex(data(#"{"payload":{"type":"message"}}"#)) == nil, "codex non-limit line -> nil")
+
+// MARK: Parse — Antigravity quota (real status line shape captured 2026-11-08, ids stripped)
+let agyJSON = data(#"{"quota":{"3p-5h":{"remaining_fraction":0.75,"reset_time":"2026-11-09T01:08:50Z"},"3p-weekly":{"remaining_fraction":1,"reset_time":"2026-11-15T20:08:50Z"},"gemini-5h":{"remaining_fraction":0.4,"reset_time":"2026-11-09T01:08:50Z"},"gemini-weekly":{"remaining_fraction":0.9,"reset_time":"2026-11-15T20:08:50Z"}},"plan":"Google AI Pro"}"#)
+let agyG = Parse.antigravity(agyJSON, family: "gemini"), agy3 = Parse.antigravity(agyJSON, family: "3p")
+check(abs((agyG?.windows.h5 ?? 0) - 60) < 0.001 && abs((agyG?.windows.d7 ?? 0) - 10) < 0.001 && agyG?.plan == "Google AI Pro", "antigravity gemini used% = 1 - remaining")
+check(abs((agy3?.windows.h5 ?? 0) - 25) < 0.001 && agy3?.windows.d7 == 0 && agy3?.windows.d7Reset == Date(timeIntervalSince1970: 1_794_773_330), "antigravity 3p family + reset time")
+check(Parse.antigravity(data(#"{"quota":{}}"#), family: "gemini") == nil && Parse.antigravity(data("{}"), family: "gemini") == nil, "antigravity: no quota -> nil")
+
+// MARK: opencode spend, from a throwaway database shaped like opencode.db
+do {
+    let path = FileManager.default.temporaryDirectory.appendingPathComponent("auw-oc-\(getpid()).db").path
+    let nowMs = Int(Date().timeIntervalSince1970 * 1000), oldMs = nowMs - 10 * 86_400_000
+    func msg(_ id: String, _ t: Int, _ role: String, _ cost: Double, _ inp: Int, _ out: Int) -> String {
+        "insert into message values('\(id)','s',\(t),\(t),'{\"role\":\"\(role)\",\"cost\":\(cost),\"tokens\":{\"input\":\(inp),\"output\":\(out),\"reasoning\":5,\"cache\":{\"read\":9999,\"write\":0}}}');"
+    }
+    let sql = "create table message(id text primary key, session_id text, time_created integer, time_updated integer, data text);"
+        + msg("a", nowMs, "assistant", 0.25, 100, 50) + msg("b", nowMs - 1000, "assistant", 0.5, 10, 10)
+        + msg("c", nowMs, "user", 9, 9999, 9999) + msg("d", oldMs, "assistant", 7, 1000, 1000)
+    check(run("/usr/bin/sqlite3", [path, sql]).status == 0, "built the opencode fixture db")
+    let week = OpenCode.totals(since: Date().addingTimeInterval(-7 * 86400), db: path)
+    check(week?.tokens == 180 && abs((week?.cost ?? 0) - 0.75) < 0.0001, "opencode: assistant messages only, cache reads excluded, old ones out of the week")
+    check(OpenCode.totals(since: .now, db: "/nonexistent/x.db") == nil, "opencode: unreadable db -> nil")
+    try? FileManager.default.removeItem(atPath: path)
+}
+check(Spend.tokens(1_250_000) == "1.2M" && Spend.tokens(12_400) == "12.4k" && Spend.cost(0.004) == "<$0.01" && Spend.cost(2.1) == "$2.10", "spend formatting")
+
+// MARK: Menu bar / widget visibility
+var vis = Account(id: "/x", name: "X", plan: nil)
+check(vis.inMenu && vis.inWidgets, "shown everywhere by default")
+vis.hidden = true
+check(!vis.inMenu && !vis.inWidgets, "old `hidden` still hides from widgets until set explicitly")
+vis.widgetHidden = false
+check(!vis.inMenu && vis.inWidgets, "hidden from the menu but still offered in widgets")
+
 // MARK: The helper script, end to end: saves rate_limits under the key the app reads, and still runs the old command
 do {
     let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("auw-check-\(getpid())")
