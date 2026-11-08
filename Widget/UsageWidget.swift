@@ -161,7 +161,7 @@ struct UsageView: View {
 
     private func cards(_ s: Snapshot, _ rows: ArraySlice<Row>, compact: Bool = false) -> some View {
         VStack(spacing: compact ? 6 : 8) {
-            ForEach(rows) { DetailCard(row: $0, now: e.date, showPace: e.config.showPace, showTrend: e.config.showTrend, compact: compact) }
+            ForEach(rows) { DetailCard(row: $0, now: e.date, showPace: e.config.showPace, showTrend: e.config.showTrend, stretch: true, compact: compact) }
         }
     }
 

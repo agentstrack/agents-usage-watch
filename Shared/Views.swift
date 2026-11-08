@@ -143,6 +143,7 @@ struct FiveHourLine: View {
 struct DetailCard: View {
     let row: Row, now: Date
     var showPace = true, showTrend = true
+    var stretch = false   // grow (up to a cap) to share spare widget height, content centred
     var compact = false   // tighter card for when the full one doesn't fit the widget height
 
     var body: some View {
@@ -162,6 +163,7 @@ struct DetailCard: View {
             if let h5 = row.h5 { FiveHourLine(pct: h5, reset: row.h5Reset, now: now) }
         }
         .padding(compact ? 8 : 10)
+        .frame(maxHeight: stretch ? 125 : nil)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.primary.opacity(0.06)))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(row.accessibilitySummary(at: now))
