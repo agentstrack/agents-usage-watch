@@ -5,7 +5,12 @@ import WidgetKit
 // Views shared by the widget and the menu bar panel.
 
 // AgentsTrack indigo for the Ultra chip, the tinted widget background and the first chart line.
-let accent = Color(red: 0.31, green: 0.27, blue: 0.90) // AgentsTrack #4f46e5
+// #4f46e5 in light; #a5b4fc in dark, where the light value is ~2:1 on the card and unreadable as chip text.
+let accent = Color(nsColor: NSColor(name: nil) { appearance in
+    appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        ? NSColor(srgbRed: 0.65, green: 0.71, blue: 0.99, alpha: 1)
+        : NSColor(srgbRed: 0.31, green: 0.27, blue: 0.90, alpha: 1)
+})
 
 extension Tone {
     var color: Color {
@@ -18,8 +23,8 @@ struct PlanChip: View {
     var body: some View {
         let ultra = plan == "ultra"
         Text(Usage.planLabel(plan).uppercased())
-            .font(.system(size: 8, weight: .bold))
-            .tracking(0.6)
+            .font(.system(size: 9, weight: .bold))
+            .tracking(0.5)
             .padding(.horizontal, 5).padding(.vertical, 1.5)
             .foregroundStyle(ultra ? accent : .secondary)
             .background(Capsule().fill(ultra ? accent.opacity(0.16) : Color.primary.opacity(0.08)))
@@ -86,15 +91,24 @@ struct AccountHeader: View {
 }
 
 /// "Login expired · as of 14:20" when the account couldn't be updated; values shown are the last good ones.
+/// Idle isn't a problem, so it reads neutral: "Last used 14:20" / "Last used 29 Oct".
 struct StatusNote: View {
     let row: Row
     var body: some View {
         if let label = row.status.label {
-            let note = HStack(spacing: 3) {
-                Image(systemName: "exclamationmark.circle.fill")
-                Text(label + (row.fetchedAt.map { " · as of \($0.formatted(date: .omitted, time: .shortened))" } ?? ""))
+            let idle = row.status == .idle
+            // fetchedAt is year 1 for agents that never had a read (opencode before its first session)
+            let when = row.fetchedAt.flatMap { $0.timeIntervalSince1970 > 0 ? $0 : nil }.map {
+                Calendar.current.isDateInToday($0) ? $0.formatted(date: .omitted, time: .shortened)
+                                                   : $0.formatted(.dateTime.day().month(.abbreviated))
             }
-            .font(.system(size: 10)).foregroundStyle(Tone.warn.color).lineLimit(1)
+            let note = HStack(spacing: 3) {
+                Image(systemName: idle ? "clock" : "exclamationmark.circle.fill")
+                Text(idle ? (when.map { "Last used \($0)" } ?? "Not used yet")
+                          : label + (when.map { " · as of \($0)" } ?? ""))
+            }
+            .font(.system(size: 10)).foregroundStyle(idle ? AnyShapeStyle(.secondary) : AnyShapeStyle(Tone.warn.color))
+            .lineLimit(1)
             // "Set up in Settings" opens the app's Settings (widget tap -> agentsusagewatch://settings)
             if row.status == .notConnected, let url = URL(string: "agentsusagewatch://settings") {
                 Link(destination: url) { note }
@@ -203,7 +217,9 @@ struct ProgressChart: View {
     let now: Date
     var compact = false
 
-    static let palette: [Color] = [accent, .teal, .orange, .pink, .green]
+    // Distinct hues for up to 8 accounts (red stays reserved for "critical"); more than that cycles.
+    static let palette: [Color] = [accent, .teal, .orange, .pink, .green, .yellow, .brown, .gray]
+    static func color(_ i: Int) -> Color { palette[i % palette.count] }
 
     private var single: Row? { rows.count == 1 && days == 7 ? rows.first : nil }
 
@@ -232,26 +248,53 @@ struct ProgressChart: View {
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
             }
         }
-        .chartForegroundStyleScale(domain: names, range: Array(Self.palette.prefix(max(names.count, 1))))
+        .chartForegroundStyleScale(domain: names, range: names.indices.map(Self.color))
         .chartXScale(domain: domain)
         .chartYScale(domain: 0...100)
         .chartYAxis {
             AxisMarks(values: [0, 50, 100]) { v in
                 AxisGridLine().foregroundStyle(Color.primary.opacity(0.08))
-                if !compact { AxisValueLabel { Text("\(v.as(Int.self) ?? 0)%").font(.system(size: 8)) } }
+                if !compact { AxisValueLabel { Text("\(v.as(Int.self) ?? 0)%").font(.system(size: 9)) } }
             }
         }
         .chartXAxis {
             AxisMarks(values: .stride(by: .day, count: days > 7 ? 7 : 1)) { _ in
                 AxisGridLine().foregroundStyle(Color.primary.opacity(0.05))
-                if !compact { AxisValueLabel(format: days > 7 ? .dateTime.day().month(.abbreviated) : .dateTime.weekday(.narrow)).font(.system(size: 8)) }
+                if !compact { AxisValueLabel(format: days > 7 ? .dateTime.day().month(.abbreviated) : .dateTime.weekday(.narrow)).font(.system(size: 9)) }
             }
         }
-        .chartLegend(rows.count > 1 && !compact ? .visible : .hidden)
+        .chartLegend(.hidden)   // ChartLegend below the chart wraps; the built-in one clips past ~4 names
         .accessibilityLabel("Weekly usage over the last \(days) days")
     }
 
     private func points(_ row: Row) -> [Point] {
         (series[row.id] ?? []).filter { domain.contains($0.t) }
+    }
+}
+
+/// The chart's key, wrapped into columns so every account stays visible. Index i matches ProgressChart's colour i.
+struct ChartLegend: View {
+    let rows: [Row]
+    var columns = 3
+    var showPct = false
+    var body: some View {
+        if rows.count > 1 {
+            Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 3) {
+                ForEach(Array(stride(from: 0, to: rows.count, by: columns)), id: \.self) { start in
+                    GridRow {
+                        ForEach(start..<min(start + columns, rows.count), id: \.self) { i in
+                            HStack(spacing: 4) {
+                                Circle().fill(ProgressChart.color(i)).frame(width: 7, height: 7)
+                                Text(rows[i].name).font(.system(size: 10, weight: .medium))
+                                    .lineLimit(1).truncationMode(.middle)
+                                if showPct { Pct(value: rows[i].d7, size: 10).foregroundStyle(.secondary) }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+            }
+            .accessibilityElement(children: .combine)
+        }
     }
 }

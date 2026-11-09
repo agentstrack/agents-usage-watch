@@ -36,13 +36,16 @@ struct MenuView: View {
                 TimelineView(.periodic(from: .now, by: 60)) { t in
                     ScrollView {
                         VStack(spacing: 8) {
-                            ForEach(rows) { DetailCard(row: $0, now: t.date) }
+                            // Past 4 accounts, tighter cards so more fit before the list scrolls
+                            ForEach(rows) { DetailCard(row: $0, now: t.date, compact: rows.count > 4) }
                         }
                     }
                     .frame(maxHeight: 520)
                     .fixedSize(horizontal: false, vertical: true)
                 }
-                progress(rows)
+                // Spend-only agents (opencode) have no weekly % to chart
+                let charted = rows.filter { $0.spend == nil }
+                if !charted.isEmpty { progress(charted) }
             }
 
             Divider()
@@ -58,6 +61,7 @@ struct MenuView: View {
         }
         .padding(14)
         .frame(width: 340)
+        .background(OnScreenPanel())
     }
 
     /// How weekly usage grew: this week or the last 4 weeks, from the app's own history.
@@ -73,7 +77,48 @@ struct MenuView: View {
                 .pickerStyle(.segmented).labelsHidden().fixedSize().controlSize(.small)
             }
             ProgressChart(rows: rows, series: store.series, days: chartDays, now: .now)
-                .frame(height: 120)
+                .frame(height: 110)
+            ChartLegend(rows: rows)
         }
     }
+}
+
+/// Menu bar managers (Ice, Bartender) hide items by parking them far off-screen, and the panel opens under the
+/// item's real position, so it would be invisible. If the panel's window lands off every screen, move it to the
+/// top of the screen under the pointer.
+private struct OnScreenPanel: NSViewRepresentable {
+    final class Probe: NSView {
+        private var observers: [NSObjectProtocol] = []
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            guard let window else { return }
+            // The window is reused between opens and placed by the system each time, so check whenever it's shown
+            // or moved (moving it ourselves posts didMove again, but then it's on screen and nothing happens).
+            let names: [Notification.Name] = [NSWindow.didMoveNotification, NSWindow.didBecomeKeyNotification,
+                                              NSWindow.didChangeOcclusionStateNotification]
+            observers = names.map { name in
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak window] _ in
+                    MainActor.assumeIsolated { window.map(Self.pullOnScreen) }
+                }
+            }
+            DispatchQueue.main.async { [weak window] in window.map(Self.pullOnScreen) }
+        }
+
+        static func pullOnScreen(_ window: NSWindow) {
+            let frame = window.frame
+            guard !NSScreen.screens.contains(where: { $0.frame.intersects(frame) }) else { return }
+            let mouse = NSEvent.mouseLocation
+            guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main else { return }
+            let area = screen.visibleFrame
+            let x = min(max(mouse.x - frame.width / 2, area.minX + 8), area.maxX - frame.width - 8)
+            // Just below the pointer (i.e. below the manager's bar it was clicked in), bottom kept on screen
+            let top = max(min(mouse.y - 16, area.maxY - 4), area.minY + frame.height)
+            window.setFrameTopLeftPoint(NSPoint(x: x, y: top))
+        }
+    }
+
+    func makeNSView(context: Context) -> Probe { Probe() }
+    func updateNSView(_ view: Probe, context: Context) {}
 }

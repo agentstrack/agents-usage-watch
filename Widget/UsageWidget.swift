@@ -130,21 +130,30 @@ struct UsageView: View {
         .accessibilityLabel(row.accessibilitySummary(at: e.date))
     }
 
-    // Three accounts with captions don't fit 155pt, so fall back to header + bar only.
+    // Every account if it fits (with captions, then without), else as many as fit plus "+N more".
     private func medium(_ s: Snapshot, _ rows: [Row]) -> some View {
         ViewThatFits(in: .vertical) {
-            mediumStack(s, rows.prefix(3), captions: true)
-            mediumStack(s, rows.prefix(4), captions: false)
+            list(s, rows, captions: true)
+            list(s, rows, captions: false)
+            list(s, rows, captions: false, limit: 3)
+            list(s, rows, captions: false, limit: 2)
         }
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
-    private func mediumStack(_ s: Snapshot, _ rows: ArraySlice<Row>, captions: Bool) -> some View {
+    /// One CompactRow per account; past `limit`, a footnote says how many are hidden and how to choose.
+    private func list(_ s: Snapshot, _ rows: [Row], captions: Bool, limit: Int? = nil) -> some View {
+        let shown = rows.prefix(limit ?? rows.count)
         // Spacers spread rows over the full height instead of bunching them at the top
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(shown.enumerated()), id: \.element.id) { i, row in
                 if i > 0 { Spacer(minLength: 6) }
                 CompactRow(row: row, now: e.date, config: e.config, caption: captions)
+            }
+            if rows.count > shown.count {
+                Spacer(minLength: 6)
+                Text("+\(rows.count - shown.count) more · right-click › Edit Widget to choose")
+                    .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
             }
             if s.isStale(at: e.date) { Spacer(minLength: 6); updated(s) }
         }
@@ -163,18 +172,22 @@ struct UsageView: View {
                 .buttonStyle(.plain).foregroundStyle(.secondary)
                 .accessibilityLabel("Refresh now")
             }
-            // Prefer showing every account (up to 4): normal cards, then tight ones, then drop to 3
+            // Every account first: cards (up to 4), then the denser list rows; only then "+N more".
             ViewThatFits(in: .vertical) {
-                cards(s, rows.prefix(4))
-                cards(s, rows.prefix(4), compact: true)
-                cards(s, rows.prefix(3))
-                cards(s, rows.prefix(3), compact: true)
+                if rows.count <= 4 {
+                    cards(s, rows)
+                    cards(s, rows, compact: true)
+                }
+                list(s, rows, captions: true)
+                list(s, rows, captions: false)
+                list(s, rows, captions: false, limit: 6)
+                list(s, rows, captions: false, limit: 4)
             }
             Spacer(minLength: 0)
         }
     }
 
-    private func cards(_ s: Snapshot, _ rows: ArraySlice<Row>, compact: Bool = false) -> some View {
+    private func cards(_ s: Snapshot, _ rows: [Row], compact: Bool = false) -> some View {
         VStack(spacing: compact ? 6 : 8) {
             ForEach(rows) { DetailCard(row: $0, now: e.date, showPace: e.config.showPace, showTrend: e.config.showTrend, stretch: true, compact: compact) }
         }
@@ -261,21 +274,12 @@ struct ProgressWidgetView: View {
             // Spend-only accounts (opencode) have no weekly % to chart
             let rows = s.rows(only: e.config.accountIds).map { $0.applyingResets(at: e.date) }.filter { $0.spend == nil }
             VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(e.config.period == .week ? "This week" : "Last 4 weeks")
-                        .font(.system(size: 13, weight: .bold)).tracking(-0.2)
-                    Spacer(minLength: 4)
-                    // Current weekly % per account, in the chart's colours
-                    ForEach(Array(rows.prefix(family == .systemLarge ? 5 : 3).enumerated()), id: \.element.id) { i, row in
-                        HStack(spacing: 3) {
-                            Circle().fill(ProgressChart.palette[i % ProgressChart.palette.count]).frame(width: 6, height: 6)
-                            Text(row.name).font(.system(size: 9, weight: .semibold)).lineLimit(1)
-                            Pct(value: row.d7, size: 10)
-                        }
-                    }
-                }
+                Text(e.config.period == .week ? "This week" : "Last 4 weeks")
+                    .font(.system(size: 13, weight: .bold)).tracking(-0.2)
                 ProgressChart(rows: rows, series: s.series ?? [:], days: e.config.period.days, now: e.date,
                               compact: family == .systemSmall)
+                // Every account with its current weekly %, in the chart's colours (wraps instead of clipping)
+                ChartLegend(rows: rows, showPct: true)
                 if family == .systemLarge, rows.count == 1, let row = rows.first {
                     TrendLine(row: row, now: e.date).font(.system(size: 10)).foregroundStyle(.secondary)
                 }

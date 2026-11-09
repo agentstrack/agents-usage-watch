@@ -48,8 +48,9 @@ struct Row: Codable, Identifiable, Equatable {
     var isLimitReached: Bool { (h5 ?? 0) >= 100 || (d7 ?? 0) >= 100 }
 
     /// Fraction of the 7-day window already elapsed (0...1), from its reset time.
+    /// nil once the reset has passed and we haven't read the new window yet: there's no pace to show.
     func weekElapsed(at now: Date) -> Double? {
-        guard let d7Reset else { return nil }
+        guard let d7Reset, d7Reset > now else { return nil }
         return min(max(1 - d7Reset.timeIntervalSince(now) / Usage.week, 0), 1)
     }
 
