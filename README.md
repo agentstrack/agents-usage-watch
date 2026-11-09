@@ -1,77 +1,130 @@
-# AgentsUsageWatch
+# Agents Usage Watch
 
-A macOS menu bar app and desktop widget that shows the plan limits your coding agents report: for Claude Code,
-the weekly window and, on plans that have one, the 5-hour window, for one or several logins side by side.
-A free tool from [AgentsTrack](https://agentstrack.ai).
+**Your coding agents' plan limits, in the macOS menu bar and on your desktop.**
 
-- **Menu bar:** highest usage at a glance; the panel shows every account with reset countdowns, a weekly pace
-  marker, a trend (+x%/day) and a projection ("on track for 62%" / "runs out before reset").
-- **Widgets:** small, medium and large. Pick accounts and background (standard, transparent, tinted) with
-  right-click › Edit Widget. Tap to refresh; the large widget has a refresh button.
-- **Notifications:** 5-hour and weekly thresholds, "may run out before reset", a mid-week "on track to leave
-  most of it unused", and "burning much faster than usual" (after a few days of history). Quiet hours.
-- **Accounts:** finds `~/.claude` and every `~/.claude-*` folder you use with `CLAUDE_CONFIG_DIR`, and you can add
-  any other folder. Rename, hide and reorder them in Settings.
+Agents Usage Watch shows how much of your 5-hour and weekly limits you've used in Claude Code, OpenAI Codex
+and the Antigravity CLI, plus what opencode spent today. It covers every login side by side, with reset
+countdowns, a pace marker and a forecast of where the week will end. It reads only files the agents already
+write on your Mac. It doesn't log in anywhere, makes no network requests for your usage, and has no
+analytics.
 
-Requires macOS 14 or later. Not affiliated with Anthropic; "Claude Code" is named only to say which tool is
-supported.
+Free and open source under the [MIT License](LICENSE). Made by [AgentsTrack](https://agentstrack.ai).
 
-## How it works
+## Features
 
-Claude Code sends a JSON status to its status line
-command after each message, and that status includes your current limit percentages (`rate_limits`). The app
-reads those numbers; it never logs in anywhere and makes no network requests for them.
+- **Menu bar:** your highest usage at a glance. The panel lists every account with its weekly bar, the
+  5-hour bar where the plan has one, a pace tick (where you'd be if you used the week evenly), the trend
+  (`+3.9%/day`), a projection (`on track for 52%` / `runs out before reset`) and a chart of the week or the
+  last 4 weeks.
+- **Widgets:**
+  - **Usage** comes in small, medium and large. With many accounts it switches to denser rows, so every
+    account stays visible. The small widget has a switcher that steps through your accounts.
+  - **Usage Progress** comes in small, medium and large and shows the weekly % over time, one line per
+    account.
+  - Right-click › Edit Widget to pick accounts, a background (standard, transparent or tinted), and whether
+    to show the pace marker and trend. Click a widget to refresh.
+- **Notifications:**
+  - **Thresholds:** 5-hour and weekly, sent once per window.
+  - **Forecasts:** "may run out before reset", "on track to leave most of it unused" (mid-week), and
+    "burning much faster than usual" (after a few days of history).
+  - **Delivery:** quiet hours, a choice of sound (or none), and a test button that tells you if macOS is
+    blocking notifications. Urgent alerts are marked Time Sensitive when the app is signed with that
+    entitlement.
+- **Accounts:** finds them on its own. Rename, hide, reorder, and choose which ones appear in the menu and in
+  widgets.
 
-1. In **Settings › Accounts**, click **Set Up** next to an account. The app backs up that account's
-   `settings.json` once (`settings.json.agentsusagewatch-backup`) and points `statusLine.command` at a small helper
-   script, `~/.agentsusagewatch/statusline`. **Remove** puts your previous command back.
-2. After each Claude Code message the helper saves only the `rate_limits` part to
-   `~/.agentsusagewatch/claude/<key>.json` (key = first 16 hex chars of sha256 of the config folder path), then runs
-   your previous status line command with the same input, so your status line looks the same. It uses only macOS
-   tools (`plutil`, `shasum`), no `jq`.
-3. The app reads those files every 30 s – 15 min (5 min by default). Values are as fresh as your last Claude Code
-   message; after two hours without one, the account shows them "as of" that time. A window whose reset time has
-   passed shows as empty.
+Requires macOS 14 Sonoma or later.
 
-The plan (Max, Ultra…) comes from the account info Claude Code keeps in `.claude.json`. Usage history (weekly % per
-account, 35 days) is kept in `~/Library/Application Support/AgentsUsageWatch/history.jsonl` for trends and alerts.
-The menu bar app writes a snapshot into an app-group container; the sandboxed widget only reads it. No analytics.
+## Supported agents
 
-## Build
+| Agent | What it shows | Where it comes from |
+|---|---|---|
+| **Claude Code** | 5-hour and weekly limits, plan | Claude Code's status line JSON (`rate_limits`), saved by a small helper script after each message. Works for `~/.claude` and every folder you use with `CLAUDE_CONFIG_DIR`. |
+| **OpenAI Codex CLI** | 5-hour and weekly limits, plan | The `rate_limits` Codex writes into its own session logs (`~/.codex/sessions`). |
+| **Antigravity CLI** (`agy`) | 5-hour and weekly limits for Gemini and third-party models | The `quota` in agy's status line JSON, saved by a helper script. |
+| **opencode** | Tokens and cost today and over 7 days (it has no plan limit) | opencode's own SQLite database, opened read-only. |
 
-Needs Xcode 15+ and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
+Values are as fresh as the agent's last message. After two hours without one, an account shows its last
+values with "Last used" and the time. A window whose reset time has passed shows as empty until the agent
+reports again.
+
+## Install
+
+There's no signed download yet, so you build it yourself. It takes a couple of minutes.
+
+You need Xcode 15 or later and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
 
 ```sh
-cp Config/Local.xcconfig.example Config/Local.xcconfig   # set your team ID and bundle ID prefix
+git clone https://github.com/agentstrack/agents-usage-watch.git
+cd agents-usage-watch
+cp Config/Local.xcconfig.example Config/Local.xcconfig   # set your team ID and a bundle ID prefix
 ./install.sh                                              # builds, installs to ~/Applications and starts it
 ```
 
-The widget needs a signing team for its app group; a free Apple ID team is enough for a local build.
-The app adds itself as a login item on first launch (turn it off in Settings › General).
+- **Signing:** the widget needs a signing team for its app group. A free Apple ID team is enough. Find your
+  team ID in Xcode › Settings › Accounts.
+- **Starting at login:** the app adds itself as a login item on first launch. Turn that off in Settings ›
+  General.
+- **Adding the widgets:** right-click the desktop › Edit Widgets › Agents Usage Watch.
 
-`./install.sh --testing` builds a private testing variant with a second, token-based Claude source. It is meant for
-the maintainer's own machine, is not distributed, and its code is compiled out of the normal build.
+### Setting up Claude Code and Antigravity
 
-Watch it work: `log stream --predicate 'subsystem == "<your bundle prefix>.agentsusagewatch"'`.
+Open **Settings › Accounts** and click **Set Up** next to the account.
 
-Logic checks (parsers, the helper script end to end, alerts, maths), runnable without Xcode:
+1. The app backs up that agent's `settings.json` once (`settings.json.agentsusagewatch-backup`).
+2. It then points `statusLine.command` at a helper script in `~/.agentsusagewatch/`.
+3. After each message, the helper saves only the limits part of the status JSON. It then runs the status
+   line command you had before with the same input, so your status line looks the same as it did.
+
+**Remove** puts your previous command back. The helpers are plain shell scripts that use only macOS tools
+(`plutil`, `shasum`). Read them in [`App/Resources/`](App/Resources).
+
+Codex and opencode need no setup.
+
+## Privacy
+
+- **No network for your usage:** the app reads the agents' own local files and makes no network requests to
+  get it.
+- **No logins:** it doesn't log in to anything or use your credentials. For Codex it opens `~/.codex/auth.json`
+  only to check that you're logged in and to show the account email.
+- **No analytics:** nothing about you or your usage leaves your Mac.
+- **What it stores:** your usage history (weekly % per account, 35 days) in
+  `~/Library/Application Support/AgentsUsageWatch/`. The widget, which runs sandboxed, only reads a snapshot
+  that the app writes to a shared app-group container.
+
+## Development
 
 ```sh
-F="Shared/Model.swift App/Parse.swift App/Alerts.swift App/Accounts.swift App/StatusLine.swift Checks/ModelCheck/main.swift"
-swiftc -o /tmp/chk $F && /tmp/chk
+./install.sh                     # build, install, restart
+log stream --predicate 'subsystem == "<your bundle prefix>.agentsusagewatch"'   # watch it work
 ```
 
-## Layout
+The logic checks cover parsers, the helper scripts end to end, alert rules and the maths. They run without
+Xcode, and CI runs them on every push:
+
+```sh
+swiftc -o /tmp/chk Shared/Model.swift App/Parse.swift App/Alerts.swift App/Accounts.swift \
+  App/StatusLine.swift Checks/ModelCheck/main.swift && /tmp/chk
+```
+
+`./install.sh --testing` builds a private variant with a second, token-based Claude source, meant only for
+the maintainer's own machine. Its code is compiled out of the normal build.
 
 | Path | What |
 |---|---|
-| `App/` | Menu bar app: status line source (`StatusLine`), accounts (`Accounts`), parsing (`Parse`), alert rules (`Alerts`), state (`Store`), UI |
-| `App/Resources/statusline.sh` | The status line helper the app installs on Set Up |
-| `Widget/` | WidgetKit extension: timeline, widget settings, refresh intent |
-| `Shared/` | Snapshot model and views used by both |
+| `App/` | Menu bar app: agent readers (`Accounts`, `StatusLine`, `Parse`), alert rules (`Alerts`), state (`Store`), panel and Settings UI |
+| `App/Resources/` | The status line helpers the app installs on Set Up |
+| `Widget/` | WidgetKit extension: timelines, widget settings, refresh and account-switch intents |
+| `Shared/` | Snapshot model and views used by both the app and the widgets |
 | `Checks/` | Fixture-based checks for the pure logic |
 | `Tools/make-icon.swift` | Draws the app icon |
 
+Adding another agent means writing a reader that returns its windows (see `Codex` in `App/Accounts.swift`),
+plus a fixture check. Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
-MIT
+[MIT](LICENSE): free to use, change and share, including commercially.
+
+Not affiliated with Anthropic, OpenAI, Google or the opencode project. Product names appear only to say
+which tools are supported.

@@ -1,0 +1,16 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  logic:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Logic checks (parsers, helper scripts, alerts, maths)
+        run: |
+          swiftc -o "$RUNNER_TEMP/chk" Shared/Model.swift App/Parse.swift App/Alerts.swift App/Accounts.swift \
+            App/StatusLine.swift Checks/ModelCheck/main.swift
+          "$RUNNER_TEMP/chk"
