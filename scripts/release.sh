@@ -37,8 +37,8 @@ REMOTE_TAG=$(git ls-remote --tags origin "refs/tags/$TAG") \
 
 if [ "$PUBLISH" -eq 1 ]; then
   git fetch --quiet origin
-  git merge-base --is-ancestor HEAD origin/main \
-    || { echo "error: HEAD is not on origin/main; push it before publishing" >&2; exit 1; }
+  git merge-base --is-ancestor HEAD origin/master \
+    || { echo "error: HEAD is not on origin/master; push it before publishing" >&2; exit 1; }
 fi
 
 echo "Building $DEST $VERSION (HEAD $(git rev-parse --short HEAD))"

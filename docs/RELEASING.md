@@ -12,7 +12,7 @@ How to cut a GitHub release of Agents Usage Watch, what users see when they open
 
 Prerequisites: Xcode with command line tools, `xcodegen` (Homebrew), `gh` logged in with write access to `agentstrack/agents-usage-watch`, and `Config/Local.xcconfig` (git-ignored, holds the signing team) present in the checkout.
 
-1. Bump `MARKETING_VERSION` (and `CURRENT_PROJECT_VERSION`) in `project.yml`. Commit and push to `main`. Releases are built from committed code only.
+1. Bump `MARKETING_VERSION` (and `CURRENT_PROJECT_VERSION`) in `project.yml`. Commit and push to `master`. Releases are built from committed code only.
 2. Build and package. The script refuses uncommitted changes to tracked files, so it works from a clean checkout:
    ```
    scripts/release.sh
@@ -27,7 +27,7 @@ Prerequisites: Xcode with command line tools, `xcodegen` (Homebrew), `gh` logged
    ```
    scripts/release.sh --publish
    ```
-   Publishing refuses if the tag already exists locally or on origin, or if HEAD is not on `origin/main`. To redo a release, delete the GitHub release and its tag first and bump nothing else.
+   Publishing refuses if the tag already exists locally or on origin, or if HEAD is not on `origin/master`. To redo a release, delete the GitHub release and its tag first and bump nothing else.
 5. Confirm the public link:
    ```
    curl -sIL https://github.com/agentstrack/agents-usage-watch/releases/latest/download/Agents-Usage-Watch.zip | grep '^HTTP' | tail -1   # expect 200
