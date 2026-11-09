@@ -7,3 +7,6 @@ please report it privately instead of opening a public issue: use GitHub's
 
 Please include the macOS version, the steps to reproduce, and what an attacker could do. You'll get a reply within a
 week, and a fix and credit (if you'd like it) once it's resolved.
+
+For what the app reads and writes, see [docs/privacy.md](docs/privacy.md). The prebuilt download is signed with an
+Apple Development certificate and is not notarized yet.

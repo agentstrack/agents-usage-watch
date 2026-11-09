@@ -10,3 +10,5 @@ Config/Local.xcconfig
 # Local planning notes
 concepts_brief.md
 .DS_Store
+build-release/
+dist/
