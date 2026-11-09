@@ -1,9 +1,9 @@
 import AppIntents
 import WidgetKit
 
-// Right-click the widget > Edit "AgentsUsageWatch" to change these.
+// Right-click the widget > Edit "Agents Usage Watch" to change these.
 struct ConfigIntent: WidgetConfigurationIntent {
-    static let title: LocalizedStringResource = "AgentsUsageWatch"
+    static let title: LocalizedStringResource = "Agents Usage Watch"
     static let description = IntentDescription("Choose which accounts to show and how the widget looks.")
 
     @Parameter(title: "Accounts", description: "Leave empty to show every account.")
@@ -91,4 +91,31 @@ enum ProgressPeriod: String, AppEnum {
         .week: "This week",
         .month: "Last 4 weeks",
     ]
+}
+
+/// Which account the small widgets show; their switch button steps through the chosen accounts.
+/// ponytail: one pick per widget kind, so two small widgets of the same kind switch together. Per-instance needs
+/// a configuration parameter instead (WidgetKit gives intents no instance id).
+enum SmallPick {
+    static let defaults = UserDefaults(suiteName: Snapshot.appGroup)
+    static func row(_ rows: [Row], kind: String) -> Row { rows[(defaults?.integer(forKey: "pick." + kind) ?? 0) % rows.count] }
+    static func advance(_ kind: String) {
+        defaults?.set((defaults?.integer(forKey: "pick." + kind) ?? 0) + 1, forKey: "pick." + kind)
+    }
+}
+
+/// The small widgets' switch button. WidgetKit reloads the widget after it runs.
+struct NextAccountIntent: AppIntent {
+    static let title: LocalizedStringResource = "Show next account"
+    static let isDiscoverable = false
+
+    @Parameter(title: "Widget") var kind: String
+
+    init() {}
+    init(kind: String) { self.kind = kind }
+
+    func perform() async throws -> some IntentResult {
+        SmallPick.advance(kind)
+        return .result()
+    }
 }

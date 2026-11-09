@@ -24,6 +24,7 @@ struct Alert: Equatable {
     let key: String    // dedupe key; an alert with a sent key never repeats
     let title: String
     let body: String
+    var urgent = true  // Time Sensitive: gets through a Focus that allows it. Only the mid-week forecast isn't.
 }
 
 enum Alerts {
@@ -77,7 +78,8 @@ enum Alerts {
                 if s.forecast, elapsed >= 0.5, p < 60 {
                     add(Alert(key: "\(row.id)|forecast|\(window)",
                               title: "\(row.name): on track to use only \(Int(p.rounded()))% this week",
-                              body: "About \(100 - Int(p.rounded()))% would go unused · resets in \(Usage.countdown(to: reset, from: now))."))
+                              body: "About \(100 - Int(p.rounded()))% would go unused · resets in \(Usage.countdown(to: reset, from: now)).",
+                              urgent: false))
                 }
             }
             if s.burnRate, let spike = burnSpike(history.filter { $0.id == row.id }, now: now) {

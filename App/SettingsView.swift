@@ -175,11 +175,36 @@ private struct NotificationSettings: View {
     @AppStorage("quietFrom") private var quietFrom = 23
     @AppStorage("quietTo") private var quietTo = 8
 
+    @AppStorage(Notifications.soundOnKey) private var soundOn = true
+    @AppStorage(Notifications.soundKey) private var sound = "default"
+    @State private var permission: UNNotificationSettings?
+    @State private var testResult: String?
+
     private let levels: [Double] = [50, 60, 70, 75, 80, 85, 90, 95, 99]
 
     var body: some View {
         Form {
-            Toggle("Notifications", isOn: $enabled)
+            Section {
+                Toggle("Notifications", isOn: $enabled)
+                LabeledContent("macOS permission") { permissionStatus }
+                Toggle("Play a sound", isOn: $soundOn)
+                if soundOn {
+                    Picker("Sound", selection: $sound) {
+                        Text("System default").tag("default")
+                        Divider()
+                        ForEach(Notifications.soundNames, id: \.self) { Text($0).tag($0) }
+                    }
+                    .onChange(of: sound) { _, name in Notifications.preview(name) }
+                }
+                if soundOn, permission?.soundSetting == .disabled {
+                    Text("Sounds are off for Agents Usage Watch in System Settings › Notifications, so none will play.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                HStack {
+                    Button("Send Test Notification") { Task { await sendTest() } }
+                    if let testResult { Text(testResult).font(.caption).foregroundStyle(.secondary) }
+                }
+            }
             Group {
                 Section("Thresholds (once per window)") {
                     thresholds("5-hour window", $fiveHourWarn, $fiveHourCritical)
@@ -205,16 +230,70 @@ private struct NotificationSettings: View {
                         Text("Anything still true afterwards is sent when quiet hours end.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Button("Send Test Notification") {
-                    let c = UNMutableNotificationContent()
-                    c.title = "AgentsUsageWatch"
-                    c.body = "Notifications are working."
-                    UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
-                }
             }
             .disabled(!enabled)
         }
         .formStyle(.grouped)
+        .task { await readPermission() }
+        // The user may have just changed it in System Settings
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await readPermission() }
+        }
+    }
+
+    @ViewBuilder private var permissionStatus: some View {
+        switch permission?.authorizationStatus {
+        case nil:
+            ProgressView().controlSize(.small)
+        case .notDetermined?:
+            Button("Allow Notifications…") {
+                Task {
+                    _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+                    await readPermission()
+                }
+            }
+        case let status? where Notifications.allowed(status):
+            if permission?.alertStyle == UNAlertStyle.none {
+                // Allowed, but they only land in Notification Centre
+                HStack(spacing: 6) {
+                    Label("Banners off", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Link("Change…", destination: Notifications.settingsURL)
+                }
+            } else {
+                Label("Allowed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            }
+        default:
+            HStack(spacing: 6) {
+                Label("Off", systemImage: "xmark.circle.fill").foregroundStyle(.red)
+                Link("Open System Settings…", destination: Notifications.settingsURL)
+            }
+        }
+    }
+
+    private func readPermission() async {
+        permission = await UNUserNotificationCenter.current().notificationSettings()
+    }
+
+    /// Asks for permission if never asked, then says what happened instead of failing silently.
+    private func sendTest() async {
+        let center = UNUserNotificationCenter.current()
+        if await center.notificationSettings().authorizationStatus == .notDetermined {
+            _ = try? await center.requestAuthorization(options: [.alert, .sound])
+        }
+        await readPermission()
+        guard let permission, Notifications.allowed(permission.authorizationStatus) else {
+            testResult = "Not sent: notifications are off for this app."
+            return
+        }
+        do {
+            try await center.add(Notifications.request(id: UUID().uuidString, title: "Agents Usage Watch",
+                                                       body: "Notifications are working."))
+            testResult = permission.alertStyle == UNAlertStyle.none
+                ? "Sent to Notification Centre (banners are off)."
+                : "Sent. In a Focus it only shows if that Focus allows Agents Usage Watch."
+        } catch {
+            testResult = "Not sent: \(error.localizedDescription)"
+        }
     }
 
     /// "5-hour window   warn [80%] · alert [95%]"
@@ -241,7 +320,7 @@ private struct AboutView: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 96, height: 96)
-            Text("AgentsUsageWatch").font(.title2.bold())
+            Text("Agents Usage Watch").font(.title2.bold())
             Text("Version \(Bundle.main.version)").foregroundStyle(.secondary)
 #if TESTING
             Text("Testing build: uses Claude Code's status line when it is fresh, otherwise reads the login from your Keychain and asks an unofficial usage endpoint (at most once per 5 minutes per account). Not for distribution.")

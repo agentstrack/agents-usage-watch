@@ -19,7 +19,8 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: AgentsUsageWatch
+        CFBundleDisplayName: Agents Usage Watch
+        CFBundleName: Agents Usage Watch
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSUIElement: true
@@ -47,7 +48,8 @@ targets:
     info:
       path: Widget/Info.plist
       properties:
-        CFBundleDisplayName: AgentsUsageWatch
+        CFBundleDisplayName: Agents Usage Watch
+        CFBundleName: Agents Usage Watch
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension: {NSExtensionPointIdentifier: com.apple.widgetkit-extension}

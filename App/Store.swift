@@ -238,19 +238,31 @@ final class Store: ObservableObject {
 
     // MARK: Notifications
 
+    /// An alert counts as sent only once macOS accepted it, so alerts raised while notifications are off (or
+    /// failed) arrive once they're allowed, as long as the condition still holds.
     private func notify(now: Date) {
-        var sent = Set(defaults.stringArray(forKey: "sentAlerts") ?? [])
-        let alerts = Alerts.evaluate(rows: visibleRows, history: history, settings: alertSettings, sent: sent, now: now)
-        for a in alerts {
-            let c = UNMutableNotificationContent()
-            c.title = a.title
-            c.body = a.body
-            c.sound = .default
-            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: a.key, content: c, trigger: nil))
-            sent.insert(a.key)
+        let alerts = Alerts.evaluate(rows: visibleRows, history: history, settings: alertSettings,
+                                     sent: Set(defaults.stringArray(forKey: "sentAlerts") ?? []), now: now)
+        guard !alerts.isEmpty else { return }
+        Task {
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
+            guard Notifications.allowed(settings.authorizationStatus) else {
+                log.notice("\(alerts.count) alert(s) held: notifications not allowed (\(settings.authorizationStatus.rawValue))")
+                return
+            }
+            var sent = Set(defaults.stringArray(forKey: "sentAlerts") ?? [])  // re-read: another refresh may have posted
+            for a in alerts where !sent.contains(a.key) {
+                do {
+                    try await center.add(Notifications.request(id: a.key, title: a.title, body: a.body, urgent: a.urgent))
+                    sent.insert(a.key)
+                } catch {
+                    log.error("notification failed: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+            // Keys embed their window, so old ones never match again; keep the list short
+            defaults.set(Array(Array(sent).suffix(400)), forKey: "sentAlerts")  // an ArraySlice isn't a plist type
         }
-        // Keys embed their window, so old ones never match again; keep the list short
-        defaults.set(Array(Array(sent).suffix(400)), forKey: "sentAlerts")  // an ArraySlice isn't a plist type
     }
 
     // MARK: System events
@@ -316,4 +328,75 @@ enum History {
         FileManager.default.createFile(atPath: file.path, contents: nil)
         return try? FileHandle(forWritingTo: file)
     }
+}
+
+enum Notifications {
+    static func allowed(_ status: UNAuthorizationStatus) -> Bool { status == .authorized || status == .provisional }
+
+    /// Urgent ones are Time Sensitive, so a Focus that allows Time Sensitive notifications shows them. That needs
+    /// the time-sensitive entitlement; without it macOS treats them as ordinary (active) notifications.
+    static func request(id: String, title: String, body: String, urgent: Bool = true) -> UNNotificationRequest {
+        let c = UNMutableNotificationContent()
+        c.interruptionLevel = urgent ? .timeSensitive : .active
+        c.title = title
+        c.body = body
+        c.sound = sound
+        return UNNotificationRequest(identifier: id, content: c, trigger: nil)
+    }
+
+    // MARK: Sound
+
+    /// Settings keys: whether alerts play a sound, and which ("default" = the system's notification sound).
+    static let soundOnKey = "alertSoundOn", soundKey = "alertSound"
+    private static let systemSounds = URL(fileURLWithPath: "/System/Library/Sounds")
+    private static let userSounds = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Sounds")
+    private static let copyPrefix = "AgentsUsageWatch "
+
+    /// Sound names to offer: the Mac's alert sounds plus any of your own in ~/Library/Sounds.
+    static var soundNames: [String] {
+        func names(_ dir: URL) -> [String] {
+            ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+                .filter { ["aiff", "aif", "wav", "caf"].contains($0.pathExtension.lowercased()) }
+                .map { $0.deletingPathExtension().lastPathComponent }
+                .filter { !$0.hasPrefix(copyPrefix) }
+        }
+        return Array(Set(names(systemSounds) + names(userSounds))).sorted()
+    }
+
+    private static func file(_ name: String) -> URL? {
+        [userSounds, systemSounds].lazy.compactMap { dir in
+            ["aiff", "aif", "wav", "caf"].lazy.map { dir.appendingPathComponent("\(name).\($0)") }
+                .first { FileManager.default.fileExists(atPath: $0.path) }
+        }.first
+    }
+
+    /// What alerts play: nil when sound is off. Notification sounds must sit in ~/Library/Sounds (or the app
+    /// bundle), so a chosen system sound is copied there once under a prefixed name.
+    static var sound: UNNotificationSound? {
+        let d = UserDefaults.standard
+        guard d.object(forKey: soundOnKey) as? Bool ?? true else { return nil }
+        let name = d.string(forKey: soundKey) ?? "default"
+        guard name != "default", let src = file(name) else { return .default }
+        if src.deletingLastPathComponent().path == userSounds.path { return UNNotificationSound(named: .init(src.lastPathComponent)) }
+        let copy = userSounds.appendingPathComponent(copyPrefix + src.lastPathComponent)
+        if !FileManager.default.fileExists(atPath: copy.path) {
+            try? FileManager.default.createDirectory(at: userSounds, withIntermediateDirectories: true)
+            // Keep only the current pick's copy
+            for old in (try? FileManager.default.contentsOfDirectory(at: userSounds, includingPropertiesForKeys: nil)) ?? []
+            where old.lastPathComponent.hasPrefix(copyPrefix) { try? FileManager.default.removeItem(at: old) }
+            do { try FileManager.default.copyItem(at: src, to: copy) } catch {
+                log.error("couldn't copy sound \(name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                return .default
+            }
+        }
+        return UNNotificationSound(named: .init(copy.lastPathComponent))
+    }
+
+    /// Plays a sound in Settings as you pick it.
+    static func preview(_ name: String) {
+        if name == "default" { NSSound.beep() } else if let url = file(name) { NSSound(contentsOf: url, byReference: true)?.play() }
+    }
+
+    /// System Settings › Notifications › Agents Usage Watch.
+    static let settingsURL = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "")")!
 }

@@ -86,19 +86,15 @@ struct UsageView: View {
                 }
             }
         } else {
-            message("No usage data yet. Open the AgentsUsageWatch menu bar app.", icon: "chart.bar.xaxis")
+            message("No usage data yet. Open the Agents Usage Watch menu bar app.", icon: "chart.bar.xaxis")
         }
     }
 
     private func small(_ s: Snapshot, _ rows: [Row]) -> some View {
-        // The first of the shown accounts (pick one in the widget's settings)
-        let row = rows[0]
+        // One of the shown accounts; the header button steps to the next
+        let row = SmallPick.row(rows, kind: UsageWidget.kind)
         return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 4) {
-                Text(row.name).font(.system(size: 13, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
-                Spacer(minLength: 2)
-                PlanChip(plan: row.plan)
-            }
+            AccountSwitcher(row: row, count: rows.count, kind: UsageWidget.kind) { PlanChip(plan: row.plan) }
             if let spend = row.spend {
                 VStack(spacing: 2) {
                     SpendHero(spend: spend, size: 24)
@@ -234,13 +230,14 @@ struct Background: View {
 }
 
 struct UsageWidget: Widget {
+    static let kind = "AgentsUsageWatch"
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: "AgentsUsageWatch", intent: ConfigIntent.self, provider: Provider()) { e in
+        AppIntentConfiguration(kind: Self.kind, intent: ConfigIntent.self, provider: Provider()) { e in
             UsageView(e: e)
                 .containerBackground(for: .widget) { Background(style: e.config.background) }
                 .widgetURL(URL(string: "agentsusagewatch://refresh"))  // a tap anywhere refreshes via the app
         }
-        .configurationDisplayName("AgentsUsageWatch")
+        .configurationDisplayName("Agents Usage Watch")
         .description("Weekly and 5-hour plan limits per Claude Code account.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
@@ -273,6 +270,18 @@ struct ProgressWidgetView: View {
         if let s = e.snap {
             // Spend-only accounts (opencode) have no weekly % to chart
             let rows = s.rows(only: e.config.accountIds).map { $0.applyingResets(at: e.date) }.filter { $0.spend == nil }
+            if rows.isEmpty {
+                Text("None of the chosen accounts have a weekly limit to chart.")
+                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            } else if family == .systemSmall {
+                // One account's week against its even pace; the header switches account
+                let row = SmallPick.row(rows, kind: ProgressWidget.kind)
+                VStack(alignment: .leading, spacing: 6) {
+                    AccountSwitcher(row: row, count: rows.count, kind: ProgressWidget.kind) { Pct(value: row.d7, size: 13) }
+                    ProgressChart(rows: [row], series: s.series ?? [:], days: e.config.period.days, now: e.date, compact: true)
+                    TrendLine(row: row, now: e.date)
+                }
+            } else {
             VStack(alignment: .leading, spacing: 6) {
                 Text(e.config.period == .week ? "This week" : "Last 4 weeks")
                     .font(.system(size: 13, weight: .bold)).tracking(-0.2)
@@ -284,22 +293,47 @@ struct ProgressWidgetView: View {
                     TrendLine(row: row, now: e.date).font(.system(size: 10)).foregroundStyle(.secondary)
                 }
             }
+            }
         } else {
-            Text("No usage data yet. Open the AgentsUsageWatch menu bar app.")
+            Text("No usage data yet. Open the Agents Usage Watch menu bar app.")
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
     }
 }
 
 struct ProgressWidget: Widget {
+    static let kind = "AgentsUsageWatchProgress"
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: "AgentsUsageWatchProgress", intent: ProgressIntent.self, provider: ProgressProvider()) { e in
+        AppIntentConfiguration(kind: Self.kind, intent: ProgressIntent.self, provider: ProgressProvider()) { e in
             ProgressWidgetView(e: e)
                 .containerBackground(for: .widget) { Background(style: e.config.background) }
                 .widgetURL(URL(string: "agentsusagewatch://refresh"))
         }
         .configurationDisplayName("Usage Progress")
         .description("How your weekly usage grew this week or over the last 4 weeks.")
-        .supportedFamilies([.systemMedium, .systemLarge])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+    }
+}
+
+/// Small widgets' header: account name (+ trailing accessory). With more than one account it's a button that
+/// steps to the next one, with a chevron saying so.
+struct AccountSwitcher<Accessory: View>: View {
+    let row: Row, count: Int, kind: String
+    @ViewBuilder var accessory: Accessory
+
+    var body: some View {
+        let label = HStack(spacing: 4) {
+            Text(row.name).font(.system(size: 13, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+            if count > 1 { Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary) }
+            Spacer(minLength: 2)
+            accessory
+        }
+        if count > 1 {
+            Button(intent: NextAccountIntent(kind: kind)) { label.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(row.name.capitalized). Show next account")
+        } else {
+            label
+        }
     }
 }

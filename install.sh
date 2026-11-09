@@ -20,7 +20,8 @@ xcodegen -q
 xcodebuild -project AgentsUsageWatch.xcodeproj -scheme AgentsUsageWatch -configuration Release \
   -derivedDataPath build -allowProvisioningUpdates -quiet build ${FLAGS[@]+"${FLAGS[@]}"}
 
-APP=AgentsUsageWatch
+APP=AgentsUsageWatch            # build product, executable and data folder name
+DEST="Agents Usage Watch"       # installed .app name: what Finder, Login Items and System Settings show
 pkill -x "$APP" 2>/dev/null || true
 
 # Replace the pre-0.2.0 app (ClaudeUsage). Its accounts, alert settings and history carry over once.
@@ -41,6 +42,12 @@ for P in ~/Library/LaunchAgents/*.claude-usage.plist; do   # 0.0.x refresh job
 done
 
 mkdir -p "$(dirname "$FLAVOR_FILE")" && { [ "$FLAVOR" = --testing ] && echo testing || echo public; } > "$FLAVOR_FILE"
-mkdir -p ~/Applications && rm -rf ~/Applications/$APP.app
-cp -R build/Build/Products/Release/$APP.app ~/Applications/
-open ~/Applications/$APP.app   # also registers the widget with the system
+mkdir -p ~/Applications
+# Installed as AgentsUsageWatch.app before: remove it and register the renamed app at login again
+if [ -d ~/Applications/$APP.app ]; then
+  rm -rf ~/Applications/$APP.app
+  defaults delete "$(defaults read "$PWD/build/Build/Products/Release/$APP.app/Contents/Info" CFBundleIdentifier)" didSetupLoginItem 2>/dev/null || true
+fi
+rm -rf ~/Applications/"$DEST.app"
+cp -R build/Build/Products/Release/$APP.app ~/Applications/"$DEST.app"
+open ~/Applications/"$DEST.app"   # also registers the widget with the system
