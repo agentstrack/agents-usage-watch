@@ -1,5 +1,7 @@
 #!/bin/bash
-# Builds the Release app and packages the GitHub Release assets into dist/.
+# Builds the Release app, signs it with Developer ID, notarizes and staples it, and packages the GitHub
+# Release assets into dist/. Needs the "Developer ID Application" certificate for the signing team and the
+# App Store Connect notary key at secrets/AuthKey_<id>.p8 (gitignored; override with NOTARY_KEY).
 #   scripts/release.sh            clean Release build + dist/ zips and SHA256SUMS.txt
 #   scripts/release.sh --publish  also create the GitHub release v<version> (tag at HEAD) with the assets
 # Refuses uncommitted changes to tracked files, so the zips match the commit they are tagged at.
@@ -24,6 +26,14 @@ esac
 [ -z "$(git status --porcelain --untracked-files=no)" ] \
   || { echo "error: tracked files have uncommitted changes; commit or stash them first" >&2; exit 1; }
 [ -f Config/Local.xcconfig ] || { echo "error: Config/Local.xcconfig is missing (signing team)" >&2; exit 1; }
+
+TEAM=$(sed -n 's/^DEVELOPMENT_TEAM *= *//p' Config/Local.xcconfig)
+IDENTITY=$(security find-identity -v -p codesigning | sed -n "s/.*\"\(Developer ID Application: .*($TEAM)\)\"/\1/p" | head -1)
+[ -n "$IDENTITY" ] || { echo "error: no \"Developer ID Application\" certificate for team $TEAM in the keychain" >&2; exit 1; }
+NOTARY_KEY_ID=${NOTARY_KEY_ID:-4H425Z87ML}
+NOTARY_ISSUER=${NOTARY_ISSUER:-3ca2f207-d7a0-48bc-bf4f-f28ab1bb553e}
+NOTARY_KEY=${NOTARY_KEY:-secrets/AuthKey_$NOTARY_KEY_ID.p8}
+[ -f "$NOTARY_KEY" ] || { echo "error: notary key not found at $NOTARY_KEY" >&2; exit 1; }
 
 VERSION=$(sed -n 's/.*MARKETING_VERSION: "\([^"]*\)".*/\1/p' project.yml)
 [ -n "$VERSION" ] || { echo "error: MARKETING_VERSION not found in project.yml" >&2; exit 1; }
@@ -57,7 +67,27 @@ STAGE=$(mktemp -d "${TMPDIR:-/tmp}/agents-usage-watch-release.XXXXXX")
 trap 'rm -rf "$STAGE"' EXIT
 # No extended attributes or resource forks: they would be zipped as ._ AppleDouble files.
 ditto --noextattr --norsrc --noqtn --noacl "$PRODUCT" "$STAGE/$DEST.app"
+
+# Re-sign inside-out with Developer ID and the hardened runtime, keeping each bundle's own entitlements
+# (minus get-task-allow). The team-prefixed App Group needs no provisioning profile on macOS.
+sign() {
+  local ents="$STAGE/ents.plist"
+  codesign -d --entitlements - --xml "$1" > "$ents" 2>/dev/null
+  plutil -remove com.apple.security.get-task-allow "$ents" >/dev/null 2>&1 || true
+  rm -f "$1/Contents/embedded.provisionprofile"
+  codesign --force --timestamp --options runtime --entitlements "$ents" --sign "$IDENTITY" "$1"
+}
+for appex in "$STAGE/$DEST.app"/Contents/PlugIns/*.appex; do sign "$appex"; done
+sign "$STAGE/$DEST.app"
 codesign --verify --deep --strict "$STAGE/$DEST.app"
+
+echo "Notarizing (a few minutes)"
+ditto -c -k --keepParent "$STAGE/$DEST.app" "$STAGE/notarize.zip"
+xcrun notarytool submit "$STAGE/notarize.zip" --key "$NOTARY_KEY" --key-id "$NOTARY_KEY_ID" \
+  --issuer "$NOTARY_ISSUER" --wait --timeout 30m | tee "$STAGE/notary.log"
+grep -q "status: Accepted" "$STAGE/notary.log" || { echo "error: notarization was not accepted" >&2; exit 1; }
+xcrun stapler staple "$STAGE/$DEST.app"
+spctl --assess --type execute "$STAGE/$DEST.app"
 
 rm -rf "$DIST" && mkdir -p "$DIST"
 # --noextattr etc.: the provenance attribute would otherwise be zipped as ._ AppleDouble entries.
@@ -79,8 +109,7 @@ $CHANGES
 ### Install
 1. Download \`$ASSET.zip\` and unzip it.
 2. Move **Agents Usage Watch.app** to \`/Applications\` or \`~/Applications\`.
-3. Open it. This build is signed with a development certificate and is **not notarized by Apple**, so a normal double-click is blocked.
-   Right-click the app, choose **Open**, then click **Open** again. If macOS only shows "cannot be opened", go to System Settings › Privacy & Security and click **Open Anyway**.
+3. Open it. It is signed with Developer ID and notarized by Apple, so it opens like any other app.
 4. Requires macOS 14 or later.
 
 ### Checksum

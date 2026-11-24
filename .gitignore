@@ -12,3 +12,5 @@ concepts_brief.md
 .DS_Store
 build-release/
 dist/
+# Notary API key (never commit)
+secrets/

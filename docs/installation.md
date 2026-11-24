@@ -13,20 +13,7 @@ it yourself.
 
 ### First launch and Gatekeeper
 
-The app is signed with an Apple Development certificate but is **not notarized** yet (there is no Developer ID
-certificate behind it). macOS therefore blocks the first launch. Pick one:
-
-- **Right-click › Open.** In Finder, right-click the app, choose **Open**, then click **Open** in the dialog.
-- **Open Anyway.** Try to open the app normally, then go to **System Settings › Privacy & Security**, scroll to
-  the Security section and click **Open Anyway** next to the message about Agents Usage Watch.
-- **Remove the quarantine flag.** In Terminal:
-
-  ```sh
-  xattr -dr com.apple.quarantine "/Applications/Agents Usage Watch.app"
-  ```
-
-You need to do this once per downloaded copy. If you'd rather not run an unnotarized binary, build it from
-source (next section) and read the code first.
+The app is signed with Developer ID and notarized by Apple, so it opens with a normal double-click.
 
 ### After launching
 

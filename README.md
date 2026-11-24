@@ -64,13 +64,9 @@ Values are as fresh as the agent's last message. Details per agent are in [docs/
 1. Download [**Agents-Usage-Watch.zip**](https://github.com/agentstrack/agents-usage-watch/releases/latest/download/Agents-Usage-Watch.zip)
    and unzip it.
 2. Move **Agents Usage Watch.app** to your Applications folder.
-3. Open it. The first launch is blocked by Gatekeeper, because the app is signed with an Apple Development
-   certificate but not notarized yet. Do one of these:
-   - right-click the app › **Open**, then **Open** again; or
-   - open **System Settings › Privacy & Security**, scroll down and click **Open Anyway**; or
-   - run `xattr -dr com.apple.quarantine "/Applications/Agents Usage Watch.app"` in Terminal.
+3. Open it. The app is signed with Developer ID and notarized by Apple, so it opens like any other app.
 
-You only do this once. Prefer to build it yourself? See [docs/installation.md](docs/installation.md).
+Prefer to build it yourself? See [docs/installation.md](docs/installation.md).
 
 ## Quick start
 
